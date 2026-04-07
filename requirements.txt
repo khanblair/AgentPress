@@ -1,0 +1,57 @@
+# ============================================================
+# AgentPress — Python Dependencies
+# ============================================================
+
+# --- Web Framework ---
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+
+# --- AI / LangGraph ---
+langchain==0.3.7
+langchain-openai==0.2.9
+langgraph==0.2.48
+openai==1.55.3
+
+# --- Memory / Vector DB ---
+chromadb==0.5.23
+sentence-transformers==3.3.1
+
+# --- Document Skills ---
+python-docx==1.1.2
+python-pptx==1.0.2
+openpyxl==3.1.5
+reportlab==4.2.5
+
+# --- Research Skills ---
+requests==2.32.3
+beautifulsoup4==4.12.3
+praw==7.8.1
+yt-dlp==2024.11.18
+
+# --- Data ---
+pandas==2.2.3
+numpy>=1.26.0
+
+# --- Environment ---
+python-dotenv==1.0.1
+pydantic==2.10.0
+pydantic-settings==2.6.1
+
+# --- Audit Trail ---
+mkdocs==1.6.1
+mkdocs-material==9.5.47
+
+# --- Frontend (Python UI) ---
+streamlit==1.40.2
+
+# --- Testing ---
+pytest==8.3.4
+pytest-asyncio==0.24.0
+pytest-cov==6.0.0
+
+# --- Utilities ---
+aiofiles==24.1.0
+httpx==0.27.2
+jinja2==3.1.4
+rich==13.9.4
+loguru==0.7.2

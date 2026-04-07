@@ -1,0 +1,38 @@
+site_name: AgentPress Audit Trail
+site_description: Live audit dashboard for the Brand-Aware Autonomous Document Pipeline
+site_url: https://your-org.github.io/AgentPress
+
+theme:
+  name: material
+  palette:
+    scheme: slate
+    primary: deep purple
+    accent: cyan
+  features:
+    - navigation.tabs
+    - navigation.top
+    - search.highlight
+    - content.code.copy
+
+nav:
+  - Dashboard: index.md
+  - Evolution Log: evolutions/
+  - Document Ledger: document_ledger/
+
+plugins:
+  - search
+  - awesome-pages
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - attr_list
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/your-org/AgentPress
