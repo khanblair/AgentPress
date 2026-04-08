@@ -18,13 +18,8 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: str = Field(default="")
     OPENROUTER_BASE_URL: str = Field(default="https://openrouter.ai/api/v1")
 
-    # ── Agent Models ──────────────────────────────────────────────────
-    ORCHESTRATOR_MODEL: str = Field(default="openai/gpt-oss-120b:free")
-    RESEARCHER_MODEL: str = Field(default="nvidia/nemotron-nano-12b-v2-vl:free")
-    SYNTHESIZER_MODEL: str = Field(default="meta-llama/llama-3.2-3b-instruct:free")
-    DESIGNER_MODEL: str = Field(default="qwen/qwen3-coder:free")
-    INSPECTOR_MODEL: str = Field(default="qwen/qwen3-235b-a22b:free")
-    META_ENGINEER_MODEL: str = Field(default="qwen/qwen3-coder:free")
+    # ── Single model for all agents ───────────────────────────────────
+    MODEL: str = Field(default="google/gemini-3-flash-preview")
 
     # ── Database ──────────────────────────────────────────────────────
     CHROMA_DB_PATH: str = Field(default="./data/chromadb")

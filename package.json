@@ -1,0 +1,10 @@
+{
+  "name": "agentpress",
+  "scripts": {
+    "dev": "concurrently --names \"API,UI\" --prefix-colors \"cyan,magenta\" \".venv/bin/uvicorn main:app --reload --port 8000\" \"npm --prefix ui/web run dev\"",
+    "start": "python start.py"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}

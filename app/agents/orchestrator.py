@@ -1,19 +1,11 @@
 """
 app/agents/orchestrator.py — Agent 1: Lead Orchestrator
-Model: openai/gpt-oss-120b:free (via OpenRouter)
-
-Responsibilities:
- - Load brand.md + user.md from knowledge base
- - Load compressed session memory
- - Run Superpowers brainstorm → finalise document_spec
- - Run Superpowers writing_plans → produce task_plan list
- - Set output_format from user prompt
+Skill: Planning, brainstorming, task decomposition
 """
 
 import uuid
-from openai import OpenAI
-
 from app.agents.state import AgentState
+from app.agents.client import chat
 from app.core.config import settings
 from app.core.logger import setup_logger
 from app.memory.session import SessionMemory
@@ -22,10 +14,11 @@ from app.tools.superpowers.writing_plans import build_task_plan
 
 log = setup_logger("orchestrator")
 
-client = OpenAI(
-    api_key=settings.OPENROUTER_API_KEY,
-    base_url=settings.OPENROUTER_BASE_URL,
-)
+SYSTEM_PROMPT = """You are the Lead Orchestrator for AgentPress, an autonomous document pipeline.
+Your role is strategic planning and task decomposition.
+You are authoritative, concise, and data-driven.
+You produce structured Markdown specifications and numbered task plans.
+Never write the document itself — only plan and specify."""
 
 
 def _load_knowledge(path: str) -> str:
@@ -42,15 +35,12 @@ def run_orchestrator(state: AgentState) -> AgentState:
     session_id = state.get("session_id") or str(uuid.uuid4())
     user_prompt = state.get("user_prompt", "")
 
-    # 1. Load knowledge base context
     brand_context = _load_knowledge("app/knowledge_base/brand.md")
-    user_context = _load_knowledge("app/knowledge_base/user.md")
-
-    # 2. Load compressed session memory
-    memory = SessionMemory(session_id)
+    user_context  = _load_knowledge("app/knowledge_base/user.md")
+    memory        = SessionMemory(session_id)
     session_context = memory.retrieve_relevant(user_prompt)
 
-    # 3. Determine output format from prompt keywords
+    # Detect output format
     fmt = "docx"
     for keyword, ftype in [
         ("pptx", "pptx"), ("slide", "pptx"), ("presentation", "pptx"),
@@ -61,30 +51,20 @@ def run_orchestrator(state: AgentState) -> AgentState:
             fmt = ftype
             break
 
-    # 4. Brainstorm → document_spec
+    # Brainstorm → document_spec
     brainstorm_prompt = build_brainstorm_prompt(
         user_prompt=user_prompt,
         brand_context=brand_context,
         user_context=user_context,
         session_context=session_context,
     )
-    log.debug(f"Orchestrator: Calling {settings.ORCHESTRATOR_MODEL} for brainstorm.")
-    spec_response = client.chat.completions.create(
-        model=settings.ORCHESTRATOR_MODEL,
-        messages=[{"role": "user", "content": brainstorm_prompt}],
-        temperature=0.3,
-    )
-    document_spec = spec_response.choices[0].message.content.strip()
+    log.debug(f"Orchestrator: Calling {settings.MODEL} for brainstorm.")
+    document_spec = chat(SYSTEM_PROMPT, brainstorm_prompt, temperature=0.3, max_tokens=512)
     log.info("Orchestrator: document_spec finalised.")
 
-    # 5. Writing plan → task_plan
+    # Writing plan → task_plan
     plan_prompt = build_task_plan(document_spec=document_spec, output_format=fmt)
-    plan_response = client.chat.completions.create(
-        model=settings.ORCHESTRATOR_MODEL,
-        messages=[{"role": "user", "content": plan_prompt}],
-        temperature=0.2,
-    )
-    plan_raw = plan_response.choices[0].message.content.strip()
+    plan_raw = chat(SYSTEM_PROMPT, plan_prompt, temperature=0.2, max_tokens=256)
     task_plan = [
         line.lstrip("0123456789.-) ").strip()
         for line in plan_raw.splitlines()

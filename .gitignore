@@ -43,6 +43,12 @@ site/
 htmlcov/
 nosetests.xml
 coverage.xml
+.pids
+
+# Frontend build artifacts
+ui/web/dist/
+ui/web/node_modules/
+node_modules/
 
 # macOS
 .DS_Store

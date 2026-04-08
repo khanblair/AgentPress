@@ -3,6 +3,10 @@ AgentPress — FastAPI Entry Point
 Brand-Aware Autonomous Document Creation Pipeline
 """
 
+import warnings
+warnings.filterwarnings("ignore", message=".*LibreSSL.*")
+warnings.filterwarnings("ignore", message=".*NotOpenSSLWarning.*")
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
