@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from app.agents.state import AgentState
 from app.agents.client import chat
+from app.agents.messenger import post_message
 from app.core.config import settings
 from app.core.logger import setup_logger
 from app.evolution_engine.skill_creator import create_skill
@@ -27,6 +28,8 @@ You output ONLY raw Python code — no markdown fences, no explanations."""
 
 def run_meta_engineer(state: AgentState) -> AgentState:
     log.info("Meta-Engineer: Evolution loop triggered.")
+    job_id = state.get("job_id", "")
+    post_message(job_id, "meta_engineer", "🧬 @inspector triggered evolution. Analysing failure and writing a new repair skill...")
 
     error_log           = state.get("error_log", "No error log provided.")
     formatting_code     = state.get("formatting_code", "")
@@ -66,6 +69,7 @@ Write a function: apply_brand_fix(draft_text: str, output_path: str) -> bool
     skill_filename = f"brand_fix_{session_id[:8]}.py"
     new_skill_path = create_skill(filename=skill_filename, code=skill_code, category="document_skills")
     log.info(f"Meta-Engineer: New skill written → {new_skill_path}")
+    post_message(job_id, "meta_engineer", f"✅ New skill written → `{skill_filename}`. @orchestrator brand rules updated. Pipeline improved for next run.", "success")
 
     # Write regression test
     test_code = f'''"""Auto-generated regression test — Session {session_id[:8]}"""

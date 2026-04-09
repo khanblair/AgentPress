@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     RAGFLOW_API_URL: str = Field(default="http://localhost:9380")
     RAGFLOW_API_KEY: str = Field(default="")
     LANGFLOW_API_URL: str = Field(default="http://localhost:7860")
+    TAVILY_API_KEY: str = Field(default="")
 
     class Config:
         env_file = ".env"

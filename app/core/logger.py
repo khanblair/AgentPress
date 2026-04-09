@@ -6,31 +6,31 @@ import sys
 import logging
 from pathlib import Path
 from loguru import logger
-
+import os
 
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
 
+# Read from env directly (settings not imported here to avoid circular imports)
+CONSOLE_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
+
 
 def setup_logger(name: str = "agentpress") -> "logger":
-    """
-    Configure Loguru logger:
-     - Console: colourised, INFO+
-     - logs/agent_execution.log: full debug trace (all agent reasoning)
-     - logs/api_errors.log: ERROR+ only (FastAPI + agent failures)
-    """
-    # Remove default Loguru handler
     logger.remove()
 
-    # Console sink
+    # Console — colourised, level from .env
     logger.add(
         sys.stderr,
         colorize=True,
-        format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan> — {message}",
-        level="INFO",
+        format=(
+            "<green>{time:HH:mm:ss}</green> | "
+            "<level>{level: <8}</level> | "
+            "<cyan>{name}</cyan> — {message}"
+        ),
+        level=CONSOLE_LEVEL,
     )
 
-    # Full execution log
+    # Full execution log — always DEBUG
     logger.add(
         LOG_DIR / "agent_execution.log",
         rotation="50 MB",
@@ -38,7 +38,7 @@ def setup_logger(name: str = "agentpress") -> "logger":
         compression="gz",
         format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} — {message}",
         level="DEBUG",
-        enqueue=True,  # thread-safe async writes
+        enqueue=True,
     )
 
     # Error-only log
@@ -52,7 +52,6 @@ def setup_logger(name: str = "agentpress") -> "logger":
         enqueue=True,
     )
 
-    # Intercept stdlib logging (FastAPI / uvicorn) into Loguru
     class InterceptHandler(logging.Handler):
         def emit(self, record: logging.LogRecord) -> None:
             try:
@@ -68,9 +67,7 @@ def setup_logger(name: str = "agentpress") -> "logger":
             )
 
     logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
-
     return logger.bind(name=name)
 
 
-# Module-level default logger
 log = setup_logger("agentpress")

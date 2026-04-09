@@ -1,7 +1,7 @@
 {
   "name": "agentpress",
   "scripts": {
-    "dev": "concurrently --names \"API,UI\" --prefix-colors \"cyan,magenta\" \".venv/bin/uvicorn main:app --reload --port 8000\" \"npm --prefix ui/web run dev\"",
+    "dev": "concurrently --names \"API,UI\" --prefix-colors \"cyan,magenta\" \".venv/bin/uvicorn main:app --reload --port 8000 --reload-exclude 'app/tools/document_skills/brand_fix_*.py' --reload-exclude 'tests/test_evolution_*.py' --reload-exclude 'docs/evolutions/*.md'\" \"npm --prefix ui/web run dev\"",
     "start": "python start.py"
   },
   "devDependencies": {

@@ -6,6 +6,7 @@ Skill: Planning, brainstorming, task decomposition
 import uuid
 from app.agents.state import AgentState
 from app.agents.client import chat
+from app.agents.messenger import post_message
 from app.core.config import settings
 from app.core.logger import setup_logger
 from app.memory.session import SessionMemory
@@ -30,7 +31,9 @@ def _load_knowledge(path: str) -> str:
 
 
 def run_orchestrator(state: AgentState) -> AgentState:
+    job_id = state.get("job_id", "")
     log.info("Orchestrator: Starting intake & planning phase.")
+    post_message(job_id, "orchestrator", f"📋 Received prompt. Detecting output format and loading brand context...")
 
     session_id = state.get("session_id") or str(uuid.uuid4())
     user_prompt = state.get("user_prompt", "")
@@ -61,6 +64,9 @@ def run_orchestrator(state: AgentState) -> AgentState:
     log.debug(f"Orchestrator: Calling {settings.MODEL} for brainstorm.")
     document_spec = chat(SYSTEM_PROMPT, brainstorm_prompt, temperature=0.3, max_tokens=512)
     log.info("Orchestrator: document_spec finalised.")
+    log.debug(f"Orchestrator: document_spec preview → {document_spec[:200]}...")
+    post_message(job_id, "orchestrator", f"✅ Document spec finalised. Output format: **{fmt.upper()}**", "success")
+
 
     # Writing plan → task_plan
     plan_prompt = build_task_plan(document_spec=document_spec, output_format=fmt)
@@ -71,6 +77,9 @@ def run_orchestrator(state: AgentState) -> AgentState:
         if line.strip()
     ]
     log.info(f"Orchestrator: task_plan has {len(task_plan)} tasks.")
+    for i, task in enumerate(task_plan, 1):
+        log.debug(f"  Task {i}: {task}")
+    post_message(job_id, "orchestrator", f"📝 Task plan ready — {len(task_plan)} tasks queued. @researcher please gather data for this spec.", "info")
 
     return {
         **state,

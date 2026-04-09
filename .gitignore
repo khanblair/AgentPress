@@ -50,8 +50,11 @@ ui/web/dist/
 ui/web/node_modules/
 node_modules/
 
-# macOS
-.DS_Store
+# Kiro settings (contains API keys)
+.kiro/settings/mcp.json
+
+# Skills — XSD schemas are large, exclude from git (re-copy from anthropics/skills if needed)
+app/skills/*/scripts/office/schemas/
 
 # IDEs
 .vscode/

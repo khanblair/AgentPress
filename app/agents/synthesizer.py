@@ -6,6 +6,7 @@ Skill: Narrative writing, document drafting
 import json
 from app.agents.state import AgentState
 from app.agents.client import chat
+from app.agents.messenger import post_message
 from app.core.config import settings
 from app.core.logger import setup_logger
 
@@ -20,6 +21,8 @@ Never apply visual formatting, colors, or styles — that is handled by the Desi
 
 def run_synthesizer(state: AgentState) -> AgentState:
     log.info("Synthesizer: Starting content drafting phase.")
+    job_id = state.get("job_id", "")
+    post_message(job_id, "synthesizer", "✍️ Got it @researcher. Drafting document content from your research brief...")
 
     document_spec = state.get("document_spec", "")
     task_plan     = state.get("task_plan", [])
@@ -50,5 +53,7 @@ INSTRUCTIONS:
     if not draft_text:
         raise ValueError("Synthesizer returned empty content.")
     log.info(f"Synthesizer: draft_text generated ({len(draft_text)} chars).")
+    log.debug(f"Synthesizer: draft preview → {draft_text[:400]}...")
+    post_message(job_id, "synthesizer", f"✅ Draft complete — {len(draft_text)} chars. @designer please format this into a {output_format.upper()} with brand styling.", "success")
 
     return {**state, "draft_text": draft_text}
