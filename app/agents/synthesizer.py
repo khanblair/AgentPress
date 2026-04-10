@@ -29,7 +29,32 @@ def run_synthesizer(state: AgentState) -> AgentState:
     raw_research  = state.get("raw_research", "")
     output_format = state.get("output_format", "docx")
 
-    drafting_prompt = f"""Write the complete document text based on the spec and research below.
+    xlsx_instructions = """
+- Output ONLY pipe-delimited tables. No prose, no descriptions, no markdown bold.
+- Each ## heading starts a new sheet tab.
+- The first row after the heading MUST be the column headers.
+- Every subsequent row is a data row with the same number of columns.
+- Use plain text only — no ** bold **, no * italic *, no backticks.
+- Example format:
+
+## Task Tracker
+ID | Task Name | Owner | Priority | Status | Due Date
+T001 | Market Research | Marketing | High | In Progress | 2025-06-01
+T002 | Design Mockups | Design | Medium | Not Started | 2025-06-15
+
+## Budget Summary
+Category | Allocated | Spent | Remaining | Notes
+Marketing | $50,000 | $12,000 | $38,000 | Q2 campaigns
+Engineering | $120,000 | $45,000 | $75,000 | Salaries only""" if output_format == "xlsx" else ""
+
+    format_instructions = {
+        "pptx": "- Write each slide as '## Slide N: [Title]' followed by 4-6 bullet points.",
+        "docx": "- Write each section as '## Section Title' followed by paragraphs and bullet points (- item).",
+        "pdf":  "- Write each section as '## Section Title' followed by paragraphs and bullet points (- item).",
+        "xlsx": xlsx_instructions,
+    }.get(output_format, "")
+
+    drafting_prompt = f"""Write the complete document content based on the spec and research below.
 
 DOCUMENT SPEC:
 {document_spec}
@@ -45,8 +70,8 @@ VALIDATED RESEARCH DATA:
 INSTRUCTIONS:
 - Follow the task plan exactly, one section per ## heading.
 - Use ONLY the validated data — do not invent facts.
-- For PPTX: write each slide as "## Slide N: [Title]" followed by bullet points.
-- Keep it concise — this is a test run."""
+{format_instructions}
+- Keep it concise."""
 
     log.debug(f"Synthesizer: Calling {settings.MODEL}.")
     draft_text = chat(SYSTEM_PROMPT, drafting_prompt, temperature=0.4, max_tokens=1024)
