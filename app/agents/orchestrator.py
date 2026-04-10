@@ -4,6 +4,7 @@ Skill: Planning, brainstorming, task decomposition
 """
 
 import uuid
+import re
 from app.agents.state import AgentState
 from app.agents.client import chat
 from app.agents.messenger import post_message
@@ -30,7 +31,28 @@ def _load_knowledge(path: str) -> str:
         return ""
 
 
-def run_orchestrator(state: AgentState) -> AgentState:
+def _derive_title(prompt: str, spec: str) -> str:
+    """
+    Derive a clean filename slug from the user prompt or document spec.
+    e.g. "Create a Q3 market analysis report" → "q3-market-analysis-report"
+    """
+    # Try to extract a title from the first line of the spec (often "# Title" or "**Title**")
+    for line in spec.splitlines():
+        line = line.strip().lstrip("#* ").rstrip("#* ")
+        if 4 < len(line) < 80 and not line.startswith(("Document", "Spec", "Overview")):
+            source = line
+            break
+    else:
+        # Fall back to the user prompt
+        source = prompt
+
+    # Strip common filler words and clean to slug
+    slug = source.lower()
+    slug = re.sub(r'\b(create|write|make|generate|build|a|an|the|for|of|with|and|to|in|on)\b', ' ', slug)
+    slug = re.sub(r'[^a-z0-9\s]', '', slug)
+    slug = re.sub(r'\s+', '-', slug.strip())
+    slug = slug.strip('-')[:60]  # max 60 chars
+    return slug or "document"
     job_id = state.get("job_id", "")
     log.info("Orchestrator: Starting intake & planning phase.")
     post_message(job_id, "orchestrator", f"📋 Received prompt. Detecting output format and loading brand context...")
@@ -67,6 +89,10 @@ def run_orchestrator(state: AgentState) -> AgentState:
     log.debug(f"Orchestrator: document_spec preview → {document_spec[:200]}...")
     post_message(job_id, "orchestrator", f"✅ Document spec finalised. Output format: **{fmt.upper()}**", "success")
 
+    # Derive a human-readable filename slug
+    document_title = _derive_title(user_prompt, document_spec)
+    log.info(f"Orchestrator: document_title → {document_title}")
+
 
     # Writing plan → task_plan
     plan_prompt = build_task_plan(document_spec=document_spec, output_format=fmt)
@@ -85,6 +111,7 @@ def run_orchestrator(state: AgentState) -> AgentState:
         **state,
         "session_id": session_id,
         "document_spec": document_spec,
+        "document_title": document_title,
         "task_plan": task_plan,
         "output_format": fmt,
         "qa_retry_count": 0,

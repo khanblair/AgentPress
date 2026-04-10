@@ -16,6 +16,7 @@ class AgentState(TypedDict, total=False):
 
     # ── Agent 1: Orchestrator outputs ─────────────────────────────────
     document_spec: str                # Finalised document specification
+    document_title: str               # Human-readable filename slug (e.g. "q3-market-analysis")
     task_plan: List[str]              # Ordered list of isolated sub-tasks
     output_format: str                # "pptx" | "docx" | "xlsx" | "pdf"
 

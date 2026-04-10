@@ -22,10 +22,19 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def run_designer(state: AgentState) -> AgentState:
-    draft_text    = state.get("draft_text", "")
-    output_format = state.get("output_format", "docx")
-    session_id    = state.get("session_id", "output")
-    output_path   = str(OUTPUT_DIR / f"{session_id}.{output_format}")
+    draft_text      = state.get("draft_text", "")
+    output_format   = state.get("output_format", "docx")
+    session_id      = state.get("session_id", "output")
+    document_title  = state.get("document_title", "").strip()
+
+    # Build a readable filename: "q3-market-analysis_a1b2c3d4.docx"
+    short_id = session_id[:8] if session_id else "output"
+    if document_title:
+        filename = f"{document_title}_{short_id}.{output_format}"
+    else:
+        filename = f"{short_id}.{output_format}"
+
+    output_path = str(OUTPUT_DIR / filename)
 
     log.info("Designer: Starting brand formatting phase.")
     log.debug(f"Designer: format={output_format} | output={output_path} | draft_chars={len(draft_text)}")
