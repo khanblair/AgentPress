@@ -77,22 +77,71 @@ def run_designer(state: AgentState) -> AgentState:
 
 
 def _build_xlsx(draft_text: str, output_path: str) -> bool:
-    """Build a basic Excel file from draft text sections."""
+    """Build a structured Excel file from draft text sections.
+
+    Handles three content patterns the Synthesizer produces:
+      1. Markdown pipe tables  → proper multi-column rows
+      2. **Key:** Value pairs  → two-column key/value rows
+      3. Bullet / plain lines  → single-column content rows
+    All markdown artifacts (**bold**, *italic*) are stripped from cell values.
+    """
     import re
     from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
 
     wb = Workbook()
     ws = wb.active
+    ws.title = "Sheet1"
 
-    # Brand colors
-    HEADER_FILL = PatternFill("solid", fgColor="1A1A2E")
-    HEADER_FONT = Font(name="Calibri", bold=True, color="EAEAEA", size=12)
-    ACCENT_FILL = PatternFill("solid", fgColor="E94560")
-    BODY_FONT   = Font(name="Calibri", size=11)
+    # ── Brand styles ──────────────────────────────────────────────────
+    NAVY        = "1A1A2E"
+    CRIMSON     = "E94560"
+    OFF_WHITE   = "EAEAEA"
+    STRIPE_EVEN = "F5F5F8"
+    STRIPE_ODD  = "FFFFFF"
 
-    # Parse ## sections
+    SECTION_FONT  = Font(name="Calibri", bold=True, color=OFF_WHITE, size=12)
+    SECTION_FILL  = PatternFill("solid", fgColor=NAVY)
+    COL_HDR_FONT  = Font(name="Calibri", bold=True, color="FFFFFF", size=11)
+    COL_HDR_FILL  = PatternFill("solid", fgColor=CRIMSON)
+    KEY_FONT      = Font(name="Calibri", bold=True, color=NAVY, size=11)
+    BODY_FONT     = Font(name="Calibri", size=11, color="333333")
+    THIN_SIDE     = Side(style="thin", color="DDDDDD")
+    THIN_BORDER   = Border(bottom=THIN_SIDE)
+
+    def _clean(text: str) -> str:
+        """Strip markdown bold/italic markers and excess whitespace."""
+        text = re.sub(r"\*{1,3}(.*?)\*{1,3}", r"\1", text)
+        text = re.sub(r"`(.*?)`", r"\1", text)
+        return text.strip()
+
+    def _is_separator(line: str) -> bool:
+        """Detect markdown table separator rows like |---|---|"""
+        return bool(re.match(r"^\|[\s\-|:]+\|$", line.strip()))
+
+    def _parse_pipe_row(line: str) -> list[str]:
+        """Split a markdown pipe-table row into cleaned cells."""
+        cells = [_clean(c) for c in line.strip().strip("|").split("|")]
+        return [c for c in cells if c]  # drop empty edge cells
+
+    def _write_row(ws, row_idx: int, cells: list, font, fill=None,
+                   align_center=False, row_height=None):
+        for ci, val in enumerate(cells, start=1):
+            c = ws.cell(row=row_idx, column=ci, value=val)
+            c.font = font
+            c.border = THIN_BORDER
+            c.alignment = Alignment(
+                horizontal="center" if align_center else "left",
+                vertical="center",
+                wrap_text=True,
+            )
+            if fill:
+                c.fill = fill
+        if row_height:
+            ws.row_dimensions[row_idx].height = row_height
+
+    # ── Parse sections ────────────────────────────────────────────────
     sections = re.split(r"^##\s+", draft_text, flags=re.MULTILINE)
     row = 1
 
@@ -100,39 +149,114 @@ def _build_xlsx(draft_text: str, output_path: str) -> bool:
         if not section.strip():
             continue
         lines = section.strip().splitlines()
-        heading = lines[0].strip()
+        heading = _clean(lines[0])
+        body_lines = [l for l in lines[1:] if l.strip()]
 
-        # Section heading row
+        # ── Section heading spanning 6 columns ───────────────────────
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
         cell = ws.cell(row=row, column=1, value=heading)
-        cell.font = HEADER_FONT
-        cell.fill = HEADER_FILL
+        cell.font = SECTION_FONT
+        cell.fill = SECTION_FILL
         cell.alignment = Alignment(horizontal="left", vertical="center")
-        ws.row_dimensions[row].height = 22
+        ws.row_dimensions[row].height = 24
         row += 1
 
-        # Body rows
-        for line in lines[1:]:
-            line = line.strip().lstrip("•-* ")
-            if not line:
-                continue
-            # Try to split on tab or multiple spaces for table-like data
-            parts = re.split(r"\t|  {2,}", line)
-            for col, part in enumerate(parts, start=1):
-                c = ws.cell(row=row, column=col, value=part.strip())
-                c.font = BODY_FONT
+        if not body_lines:
             row += 1
+            continue
 
-        row += 1  # blank row between sections
+        # ── Detect content type ───────────────────────────────────────
+        pipe_lines = [l for l in body_lines if l.strip().startswith("|")]
+        kv_lines   = [l for l in body_lines if re.match(r"^\*{0,2}\w[^|]*:\*{0,2}\s+\S", l.strip())]
 
-    # Auto-size columns
-    for col in ws.columns:
-        max_len = max((len(str(c.value or "")) for c in col), default=10)
-        ws.column_dimensions[get_column_letter(col[0].column)].width = min(max_len + 4, 60)
+        if len(pipe_lines) >= 2:
+            # ── Markdown pipe table ───────────────────────────────────
+            header_written = False
+            for line in body_lines:
+                line = line.strip()
+                if not line or _is_separator(line):
+                    continue
+                cells = _parse_pipe_row(line)
+                if not cells:
+                    continue
+                if not header_written:
+                    _write_row(ws, row, cells, COL_HDR_FONT, COL_HDR_FILL,
+                               align_center=True, row_height=20)
+                    header_written = True
+                else:
+                    stripe = STRIPE_EVEN if row % 2 == 0 else STRIPE_ODD
+                    _write_row(ws, row, cells, BODY_FONT,
+                               PatternFill("solid", fgColor=stripe.lstrip("#")),
+                               row_height=18)
+                row += 1
 
-    # Footer
-    ws.cell(row=row + 1, column=1, value="CONFIDENTIAL - AgentPress Internal").font = Font(
-        name="Calibri", size=9, italic=True, color="888888"
-    )
+        elif len(kv_lines) > len(body_lines) // 2:
+            # ── Key: Value pairs → two-column layout ─────────────────
+            # Write a small header
+            _write_row(ws, row, ["Property", "Value"], COL_HDR_FONT, COL_HDR_FILL,
+                       align_center=True, row_height=20)
+            row += 1
+            for line in body_lines:
+                line = line.strip().lstrip("•-* ")
+                if not line:
+                    continue
+                # Split on first colon
+                match = re.match(r"^(.*?):\s+(.+)$", _clean(line))
+                if match:
+                    key, val = match.group(1).strip(), match.group(2).strip()
+                else:
+                    key, val = _clean(line), ""
+                stripe = STRIPE_EVEN if row % 2 == 0 else STRIPE_ODD
+                fill = PatternFill("solid", fgColor=stripe.lstrip("#"))
+                kc = ws.cell(row=row, column=1, value=key)
+                kc.font = KEY_FONT
+                kc.fill = fill
+                kc.border = THIN_BORDER
+                kc.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+                vc = ws.cell(row=row, column=2, value=val)
+                vc.font = BODY_FONT
+                vc.fill = fill
+                vc.border = THIN_BORDER
+                vc.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+                ws.row_dimensions[row].height = 18
+                row += 1
+
+        else:
+            # ── Bullet / plain lines → single-column content ──────────
+            for line in body_lines:
+                line = _clean(line.strip().lstrip("•-* "))
+                if not line:
+                    continue
+                # Try pipe split as a last resort
+                if "|" in line:
+                    parts = [p.strip() for p in line.split("|") if p.strip()]
+                else:
+                    parts = [line]
+                stripe = STRIPE_EVEN if row % 2 == 0 else STRIPE_ODD
+                _write_row(ws, row, parts, BODY_FONT,
+                           PatternFill("solid", fgColor=stripe.lstrip("#")),
+                           row_height=18)
+                row += 1
+
+        row += 1  # blank gap between sections
+
+    # ── Auto-size columns ─────────────────────────────────────────────
+    col_widths: dict[int, int] = {}
+    for r in ws.iter_rows():
+        for c in r:
+            if c.value:
+                col_widths[c.column] = max(
+                    col_widths.get(c.column, 8),
+                    min(len(str(c.value)), 60)
+                )
+    for col_idx, width in col_widths.items():
+        ws.column_dimensions[get_column_letter(col_idx)].width = width + 4
+
+    # ── Footer ────────────────────────────────────────────────────────
+    ws.merge_cells(start_row=row + 1, start_column=1, end_row=row + 1, end_column=6)
+    footer = ws.cell(row=row + 1, column=1, value="CONFIDENTIAL — AgentPress Internal")
+    footer.font = Font(name="Calibri", size=9, italic=True, color="999999")
+    footer.alignment = Alignment(horizontal="center")
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)

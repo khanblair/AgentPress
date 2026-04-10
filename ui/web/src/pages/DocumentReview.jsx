@@ -168,33 +168,101 @@ function DocPreview({ filename }) {
 
   // ── XLSX ──
   if (extension === 'xlsx') return (
-    <div className="overflow-y-auto h-full p-4 flex flex-col gap-6">
+    <div className="overflow-y-auto h-full p-5 flex flex-col gap-8"
+      style={{ background: 'var(--surface)' }}>
       {content.map((sheet) => (
         <div key={sheet.name}>
-          <p className="text-xs font-semibold mb-2 uppercase tracking-widest px-1"
-            style={{ color: 'var(--on-surface-var)' }}>{sheet.name}</p>
-          <div className="overflow-x-auto rounded-xl" style={{ border: '1px solid var(--outline-var)' }}>
-            <table className="w-full text-xs border-collapse">
-              {sheet.rows.map((row, ri) => (
-                <tr key={ri} style={{ background: ri === 0 ? '#1A1A2E' : ri % 2 === 0 ? 'var(--surface-high)' : 'var(--surface-highest)' }}>
-                  {row.map((cell, ci) => (
-                    <td key={ci}
-                      className="px-3 py-2 border-r last:border-r-0"
-                      style={{
-                        color: ri === 0 ? '#EAEAEA' : 'var(--on-surface-var)',
-                        fontWeight: ri === 0 ? 600 : 400,
-                        borderColor: 'var(--outline-var)',
-                        whiteSpace: 'nowrap',
-                      }}>
-                      {cell}
-                    </td>
-                  ))}
-                </tr>
-              ))}
+          {/* Sheet tab label */}
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded"
+              style={{ background: '#1A1A2E', color: '#EAEAEA' }}>SHEET</span>
+            <p className="text-sm font-semibold" style={{ color: 'var(--on-surface)' }}>{sheet.name}</p>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl"
+            style={{ border: '1px solid var(--outline-var)', boxShadow: '0 1px 6px rgba(0,0,0,0.06)' }}>
+            <table className="w-full text-xs border-collapse" style={{ fontFamily: 'Calibri, Arial, sans-serif' }}>
+              <tbody>
+                {sheet.rows.map((row, ri) => {
+                  // Detect section heading rows: single non-empty cell, dark background from builder
+                  const isSectionRow = row.filter(c => c && c.trim()).length === 1 && ri > 0
+                  // First row of each table block is the column header (crimson in builder)
+                  const isColHeader = !isSectionRow && ri > 0 && row.length > 1 &&
+                    sheet.rows[ri - 1]?.filter(c => c && c.trim()).length === 1
+
+                  if (ri === 0) {
+                    // Very first row — treat as sheet title / section heading
+                    return (
+                      <tr key={ri} style={{ background: '#1A1A2E' }}>
+                        <td colSpan={Math.max(...sheet.rows.map(r => r.length))}
+                          className="px-4 py-2.5 text-sm font-bold"
+                          style={{ color: '#EAEAEA', letterSpacing: '0.01em' }}>
+                          {row.find(c => c && c.trim()) || ''}
+                        </td>
+                      </tr>
+                    )
+                  }
+
+                  if (isSectionRow) {
+                    return (
+                      <tr key={ri} style={{ background: '#1A1A2E' }}>
+                        <td colSpan={Math.max(...sheet.rows.map(r => r.length))}
+                          className="px-4 py-2 text-xs font-bold uppercase tracking-wide"
+                          style={{ color: '#EAEAEA' }}>
+                          {row.find(c => c && c.trim())}
+                        </td>
+                      </tr>
+                    )
+                  }
+
+                  if (isColHeader) {
+                    return (
+                      <tr key={ri} style={{ background: '#E94560' }}>
+                        {row.map((cell, ci) => (
+                          <td key={ci} className="px-3 py-2 font-semibold text-center"
+                            style={{
+                              color: '#fff',
+                              borderRight: ci < row.length - 1 ? '1px solid rgba(255,255,255,0.2)' : 'none',
+                              whiteSpace: 'nowrap',
+                            }}>
+                            {cell}
+                          </td>
+                        ))}
+                      </tr>
+                    )
+                  }
+
+                  // Regular data row — zebra stripe
+                  return (
+                    <tr key={ri}
+                      style={{ background: ri % 2 === 0 ? '#F5F5F8' : '#FFFFFF' }}
+                      className="hover:brightness-95 transition-all">
+                      {row.map((cell, ci) => (
+                        <td key={ci}
+                          className="px-3 py-2"
+                          style={{
+                            color: ci === 0 ? '#1A1A2E' : '#444',
+                            fontWeight: ci === 0 ? 600 : 400,
+                            borderRight: ci < row.length - 1 ? '1px solid #E8E8EC' : 'none',
+                            borderBottom: '1px solid #E8E8EC',
+                            maxWidth: '280px',
+                            whiteSpace: 'normal',
+                            wordBreak: 'break-word',
+                          }}>
+                          {cell}
+                        </td>
+                      ))}
+                    </tr>
+                  )
+                })}
+              </tbody>
             </table>
           </div>
         </div>
       ))}
+      <p className="text-xs text-center pb-2" style={{ color: '#aaa' }}>
+        CONFIDENTIAL — AgentPress Internal
+      </p>
     </div>
   )
 
