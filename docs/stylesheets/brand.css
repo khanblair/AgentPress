@@ -1,0 +1,86 @@
+/* AgentPress brand colors — matches React UI (#1A1A2E navy, #E94560 crimson, #EAEAEA off-white) */
+
+:root {
+  --md-primary-fg-color:        #E94560;
+  --md-primary-fg-color--light: #ff6b85;
+  --md-primary-fg-color--dark:  #c73350;
+  --md-accent-fg-color:         #cdbdff;
+  --md-default-bg-color:        #1A1A2E;
+  --md-default-fg-color:        #EAEAEA;
+  --md-default-fg-color--light: #948da2;
+  --md-default-fg-color--lighter: #494456;
+  --md-code-bg-color:           #16213E;
+  --md-code-fg-color:           #EAEAEA;
+}
+
+/* Nav bar */
+.md-header {
+  background-color: #1A1A2E;
+  border-bottom: 2px solid #E94560;
+}
+
+.md-header__title {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* Tabs */
+.md-tabs {
+  background-color: #16213E;
+  border-bottom: 1px solid rgba(233, 69, 96, 0.3);
+}
+
+.md-tabs__link--active,
+.md-tabs__link:hover {
+  color: #E94560 !important;
+}
+
+/* Sidebar */
+.md-nav__link--active {
+  color: #E94560 !important;
+  font-weight: 600;
+}
+
+/* Admonition overrides */
+.md-typeset .admonition.tip,
+.md-typeset details.tip {
+  border-color: #E94560;
+}
+.md-typeset .tip > .admonition-title,
+.md-typeset .tip > summary {
+  background-color: rgba(233, 69, 96, 0.15);
+}
+.md-typeset .tip > .admonition-title::before,
+.md-typeset .tip > summary::before {
+  background-color: #E94560;
+}
+
+/* Agent status badges */
+.agent-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.agent-badge.active  { background: rgba(68,221,193,0.15); color: #44ddc1; border: 1px solid #44ddc1; }
+.agent-badge.crimson { background: rgba(233,69,96,0.15);  color: #E94560; border: 1px solid #E94560; }
+.agent-badge.purple  { background: rgba(205,189,255,0.15); color: #cdbdff; border: 1px solid #cdbdff; }
+
+/* Pipeline flow table */
+.md-typeset table:not([class]) th {
+  background-color: #1A1A2E;
+  color: #EAEAEA;
+  border-bottom: 2px solid #E94560;
+}
+.md-typeset table:not([class]) tr:nth-child(even) {
+  background-color: rgba(26, 26, 46, 0.4);
+}
+
+/* Footer */
+.md-footer {
+  background-color: #1A1A2E;
+  border-top: 1px solid rgba(233, 69, 96, 0.3);
+}

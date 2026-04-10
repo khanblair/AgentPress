@@ -1,21 +1,32 @@
-site_name: AgentPress Audit Trail
-site_description: Live audit dashboard for the Brand-Aware Autonomous Document Pipeline
-site_url: https://your-org.github.io/AgentPress
+site_name: AgentPress
+site_description: Brand-Aware Autonomous Document Creation Pipeline — 6-Agent AI System
+site_url: https://khanblair.github.io/AgentPress/
 
 theme:
   name: material
   palette:
     scheme: slate
-    primary: deep purple
-    accent: cyan
+    primary: custom
+    accent: custom
   features:
     - navigation.tabs
     - navigation.top
+    - navigation.sections
     - search.highlight
+    - search.suggest
     - content.code.copy
+    - content.code.annotate
+  font:
+    text: Manrope
+    code: JetBrains Mono
+
+extra_css:
+  - stylesheets/brand.css
 
 nav:
   - Dashboard: index.md
+  - Architecture: architecture.md
+  - Agents: agents.md
   - Evolution Log: evolutions/index.md
   - Document Ledger: document_ledger/index.md
 
@@ -28,10 +39,14 @@ markdown_extensions:
   - pymdownx.superfences
   - pymdownx.tabbed:
       alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
   - tables
   - attr_list
+  - md_in_html
 
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/your-org/AgentPress
+      link: https://github.com/khanblair/AgentPress
