@@ -1,5 +1,7 @@
 # AgentPress
 
+**Live Audit Trail:** [https://khanblair.github.io/AgentPress/](https://khanblair.github.io/AgentPress/)
+
 A brand-aware autonomous document creation pipeline powered by a 6-agent AI system. AgentPress researches, drafts, formats, and quality-reviews enterprise documents — and when it fails, it writes its own code to fix itself.
 
 Supports **PPTX**, **DOCX**, **XLSX**, and **PDF** output with strict brand compliance enforcement.
