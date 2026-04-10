@@ -9,6 +9,7 @@ from typing import Optional, Dict
 import uuid
 import os
 import json
+import re
 import asyncio
 from pathlib import Path
 from datetime import datetime, timezone
@@ -470,23 +471,41 @@ async def preview_output(filename: str):
                 with pdfplumber.open(str(file_path)) as pdf:
                     content = []
                     for page_num, page in enumerate(pdf.pages, 1):
+                        # Skip cover page (page 1) — it's the navy background, mostly empty text
+                        if page_num == 1:
+                            text = page.extract_text() or ""
+                            # Only grab the title from cover (first non-empty line)
+                            for line in text.splitlines():
+                                line = line.strip()
+                                if line and line not in ("AgentPress", "CONFIDENTIAL"):
+                                    content.append({"type": "h1", "text": line, "runs": []})
+                                    break
+                            continue
+
                         text = page.extract_text() or ""
                         for line in text.splitlines():
                             line = line.strip()
                             if not line:
                                 continue
-                            # Heuristic: short ALL-CAPS or title-case lines are headings
-                            if len(line) < 80 and (line.isupper() or (line.istitle() and len(line.split()) <= 8)):
+                            # Skip header/footer artifacts
+                            if line in ("AgentPress", "CONFIDENTIAL — AgentPress Internal") or \
+                               line.startswith("Page ") or line.startswith("CONFIDENTIAL"):
+                                continue
+                            # Heading: short line, ALL CAPS, no sentence punctuation
+                            if len(line) < 70 and line.isupper() and not line.endswith(('.', ',', ':')):
                                 content.append({"type": "h2", "text": line, "runs": []})
-                            elif line.startswith(("•", "-", "*")):
+                            # Bullet point
+                            elif re.match(r'^[•\-\*]\s+', line):
                                 content.append({"type": "bullet", "text": line.lstrip("•-* "), "runs": []})
                             else:
                                 content.append({"type": "paragraph", "text": line, "runs": []})
+
                         if page_num < len(pdf.pages):
                             content.append({"type": "page_break", "text": f"— Page {page_num} —", "runs": []})
             except ImportError:
-                # pdfplumber not installed — basic fallback message
-                content = [{"type": "paragraph", "text": "PDF preview requires pdfplumber. Install with: pip install pdfplumber", "runs": []}]
+                content = [{"type": "paragraph", "text": "PDF preview requires pdfplumber. Run: pip install pdfplumber", "runs": []}]
+            except Exception as pdf_err:
+                content = [{"type": "paragraph", "text": f"Could not read PDF: {pdf_err}", "runs": []}]
         else:
             content = [{"type": "paragraph", "text": f"Preview not available for {ext} files.", "runs": []}]
 
