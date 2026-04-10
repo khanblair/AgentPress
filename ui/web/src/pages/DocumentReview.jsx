@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { listOutputs, getDownloadUrl, previewDocument, chatWithDoc } from '../api/client'
-import { Download, Send, FileText, Table, Presentation, File } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { listOutputs, getDownloadUrl, previewDocument, chatWithDoc, editDocument } from '../api/client'
+import { Download, Send, FileText, Table, Presentation, File, Pencil, CheckCircle, Loader } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 
 // Shared markdown renderer for chat bubbles
@@ -316,8 +316,9 @@ function DocPreview({ filename }) {
 }
 
 // ── Document chat ──────────────────────────────────────────────────────────────
-function DocChat({ filename }) {
+function DocChat({ filename, onEditApplied }) {
   const storageKey = `doc_chat_${filename}`
+  const queryClient = useQueryClient()
 
   const [messages, setMessages] = useState(() => {
     try {
@@ -332,9 +333,10 @@ function DocChat({ filename }) {
 
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [editingMsgIdx, setEditingMsgIdx] = useState(null)
+  const [editStatus, setEditStatus] = useState(null) // null | 'applying' | 'done' | 'error'
   const bottomRef = useRef(null)
 
-  // Persist messages to localStorage whenever they change
   useEffect(() => {
     try { localStorage.setItem(storageKey, JSON.stringify(messages)) } catch {}
   }, [messages, storageKey])
@@ -343,6 +345,14 @@ function DocChat({ filename }) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  // Detect if a message looks like an edit suggestion
+  const isEditSuggestion = (content) => {
+    const lower = content.toLowerCase()
+    return lower.includes('here') || lower.includes('revised') || lower.includes('updated') ||
+           lower.includes('changed') || lower.includes('replaced') || lower.includes('rewritten') ||
+           lower.includes('new version') || lower.includes('edited')
+  }
+
   const send = async () => {
     if (!input.trim() || loading) return
     const userMsg = { role: 'user', content: input }
@@ -350,13 +360,40 @@ function DocChat({ filename }) {
     setInput('')
     setLoading(true)
     try {
-      const history = messages.filter(m => m.role !== 'assistant' || messages.indexOf(m) > 0)
+      const history = messages.slice(-6)
       const { reply } = await chatWithDoc(filename, input, history)
-      setMessages(prev => [...prev, { role: 'assistant', content: reply }])
+      setMessages(prev => [...prev, { role: 'assistant', content: reply, instruction: input }])
     } catch {
       setMessages(prev => [...prev, { role: 'assistant', content: 'Something went wrong. Try again.' }])
     } finally {
       setLoading(false)
+    }
+  }
+
+  const applyEdit = async (msgIdx) => {
+    const msg = messages[msgIdx]
+    // Use the user instruction that prompted this reply
+    const instruction = msg.instruction || messages[msgIdx - 1]?.content || msg.content
+    setEditingMsgIdx(msgIdx)
+    setEditStatus('applying')
+    try {
+      await editDocument(filename, instruction)
+      setEditStatus('done')
+      // Invalidate preview cache so it reloads
+      queryClient.invalidateQueries({ queryKey: ['preview', filename] })
+      onEditApplied?.()
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `✅ Edit applied to **${filename}**. The preview has been updated.`,
+      }])
+      setTimeout(() => { setEditingMsgIdx(null); setEditStatus(null) }, 2000)
+    } catch (e) {
+      setEditStatus('error')
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `❌ Edit failed: ${e.response?.data?.detail || e.message}`,
+      }])
+      setTimeout(() => { setEditingMsgIdx(null); setEditStatus(null) }, 3000)
     }
   }
 
@@ -365,7 +402,7 @@ function DocChat({ filename }) {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto flex flex-col gap-3 p-4">
         {messages.map((msg, i) => (
-          <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+          <div key={i} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
             <div className="max-w-[85%] px-3 py-2 rounded-xl text-sm leading-relaxed"
               style={{
                 background: msg.role === 'user' ? 'var(--primary-container)' : '#fff',
@@ -374,6 +411,28 @@ function DocChat({ filename }) {
               }}>
               <MarkdownMsg content={msg.content} />
             </div>
+            {/* Apply Edit button for assistant messages that look like edits */}
+            {msg.role === 'assistant' && i > 0 && isEditSuggestion(msg.content) && (
+              <button
+                onClick={() => applyEdit(i)}
+                disabled={editingMsgIdx !== null}
+                className="flex items-center gap-1.5 mt-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all disabled:opacity-50"
+                style={{
+                  background: editingMsgIdx === i && editStatus === 'done'
+                    ? 'rgba(68,221,193,0.15)' : 'var(--primary-container)',
+                  color: editingMsgIdx === i && editStatus === 'done'
+                    ? '#44ddc1' : 'var(--primary)',
+                  border: `1px solid ${editingMsgIdx === i && editStatus === 'done' ? '#44ddc1' : 'var(--primary)'}`,
+                }}>
+                {editingMsgIdx === i && editStatus === 'applying' ? (
+                  <><Loader size={11} className="animate-spin" /> Applying...</>
+                ) : editingMsgIdx === i && editStatus === 'done' ? (
+                  <><CheckCircle size={11} /> Applied</>
+                ) : (
+                  <><Pencil size={11} /> Apply Edit to File</>
+                )}
+              </button>
+            )}
           </div>
         ))}
         {loading && (
@@ -500,11 +559,27 @@ export default function DocumentReview() {
       <div className="flex flex-col w-80 shrink-0 overflow-hidden"
         style={{ borderLeft: '1px solid var(--outline-var)', background: 'var(--surface-low)' }}>
         <div className="px-4 py-3 shrink-0" style={{ borderBottom: '1px solid var(--outline-var)' }}>
-          <p className="text-sm font-semibold" style={{ color: 'var(--on-surface)' }}>Document Chat</p>
-          <p className="text-xs mt-0.5" style={{ color: 'var(--on-surface-var)' }}>Ask questions or request edits</p>
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-semibold" style={{ color: 'var(--on-surface)' }}>Document Chat</p>
+            <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded"
+              style={{ background: 'rgba(205,189,255,0.12)', color: 'var(--primary)', border: '1px solid var(--primary)' }}>
+              <Pencil size={9} strokeWidth={2} /> Edits files
+            </span>
+          </div>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--on-surface-var)' }}>
+            Ask questions or say "change X to Y" to edit
+          </p>
         </div>
         {selected
-          ? <DocChat filename={selected.name} />
+          ? <DocChat
+              filename={selected.name}
+              onEditApplied={() => {
+                // Force preview refetch by briefly clearing selection
+                const s = selected
+                setSelected(null)
+                setTimeout(() => setSelected(s), 50)
+              }}
+            />
           : <p className="text-xs p-4" style={{ color: 'var(--on-surface-var)' }}>Select a document to start chatting.</p>
         }
       </div>

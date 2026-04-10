@@ -515,6 +515,167 @@ class DocChatRequest(BaseModel):
     history: list = []
 
 
+class DocEditRequest(BaseModel):
+    filename: str
+    instruction: str
+
+
+@router.post("/outputs/edit")
+async def edit_document(request: DocEditRequest):
+    """
+    Apply an edit instruction to an existing document.
+    Reads the file, asks the LLM to revise the content, then rebuilds the file in-place.
+    Returns the updated preview content.
+    """
+    from app.agents.client import client as openai_client
+    from app.core.config import settings as cfg
+
+    file_path = OUTPUTS_DIR / request.filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    ext = file_path.suffix.lower().lstrip(".")
+
+    # ── 1. Extract current text content ──────────────────────────────────────
+    current_text = ""
+    try:
+        if ext == "docx":
+            from docx import Document as DocxDoc
+            doc = DocxDoc(str(file_path))
+            lines = []
+            for p in doc.paragraphs:
+                if not p.text.strip():
+                    continue
+                style = p.style.name
+                if style.startswith("Heading 1") or style == "Title":
+                    lines.append(f"# {p.text}")
+                elif style.startswith("Heading 2"):
+                    lines.append(f"## {p.text}")
+                elif style.startswith("Heading 3"):
+                    lines.append(f"### {p.text}")
+                elif style.startswith("List"):
+                    lines.append(f"- {p.text}")
+                else:
+                    lines.append(p.text)
+            current_text = "\n".join(lines)
+
+        elif ext == "pptx":
+            from pptx import Presentation as PptxPrs
+            prs = PptxPrs(str(file_path))
+            lines = []
+            for i, slide in enumerate(prs.slides, 1):
+                title_text = ""
+                bullets = []
+                for shape in slide.shapes:
+                    if not hasattr(shape, "text_frame"):
+                        continue
+                    for j, para in enumerate(shape.text_frame.paragraphs):
+                        t = para.text.strip()
+                        if not t:
+                            continue
+                        if j == 0 and not title_text:
+                            title_text = t
+                        else:
+                            bullets.append(f"- {t}")
+                lines.append(f"## Slide {i}: {title_text}")
+                lines.extend(bullets)
+            current_text = "\n".join(lines)
+
+        elif ext == "xlsx":
+            import openpyxl
+            wb = openpyxl.load_workbook(str(file_path), read_only=True, data_only=True)
+            lines = []
+            for sheet_name in wb.sheetnames:
+                lines.append(f"## {sheet_name}")
+                ws = wb[sheet_name]
+                for row in ws.iter_rows(max_row=200, values_only=True):
+                    row_data = [str(c) if c is not None else "" for c in row]
+                    if any(c.strip() for c in row_data):
+                        lines.append(" | ".join(row_data))
+            current_text = "\n".join(lines)
+
+        elif ext == "pdf":
+            try:
+                import pdfplumber
+                with pdfplumber.open(str(file_path)) as pdf:
+                    lines = []
+                    for page in pdf.pages:
+                        text = page.extract_text() or ""
+                        lines.append(text)
+                    current_text = "\n".join(lines)
+            except ImportError:
+                raise HTTPException(status_code=400, detail="PDF editing requires pdfplumber: pip install pdfplumber")
+        else:
+            raise HTTPException(status_code=400, detail=f"Editing not supported for .{ext} files")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not read document: {e}")
+
+    # ── 2. Ask LLM to apply the edit instruction ──────────────────────────────
+    format_hint = {
+        "docx": "Use ## for section headings, - for bullet points, plain text for paragraphs.",
+        "pptx": "Use '## Slide N: Title' for each slide, followed by bullet points (- item). Keep 4-6 bullets per slide.",
+        "xlsx": "Use ## for sheet/section names. Use pipe-delimited rows: Col A | Col B | Col C",
+        "pdf":  "Use ## for section headings, ### for sub-headings, - for bullet points, plain text for paragraphs.",
+    }.get(ext, "")
+
+    system = f"""You are a document editor. You will receive the current document content and an edit instruction.
+Apply the instruction precisely and return the COMPLETE revised document content.
+{format_hint}
+Return ONLY the document content — no explanations, no markdown code fences."""
+
+    user_msg = f"""CURRENT DOCUMENT:
+{current_text[:4000]}
+
+EDIT INSTRUCTION:
+{request.instruction}
+
+Return the complete revised document."""
+
+    try:
+        response = openai_client.chat.completions.create(
+            model=cfg.MODEL,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_msg},
+            ],
+            temperature=0.3,
+            max_tokens=2048,
+        )
+        revised_text = (response.choices[0].message.content or "").strip()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"LLM edit failed: {e}")
+
+    if not revised_text:
+        raise HTTPException(status_code=500, detail="LLM returned empty content")
+
+    # ── 3. Rebuild the file in-place ──────────────────────────────────────────
+    try:
+        output_path = str(file_path)
+        if ext == "docx":
+            from app.tools.document_skills.docx_builder import build_docx
+            build_docx(revised_text, output_path)
+        elif ext == "pptx":
+            from app.tools.document_skills.pptx_builder import build_pptx
+            build_pptx(revised_text, output_path)
+        elif ext == "xlsx":
+            from app.tools.document_skills.xlsx_builder import build_xlsx
+            build_xlsx(revised_text, output_path)
+        elif ext == "pdf":
+            from app.tools.document_skills.pdf_builder import build_pdf
+            build_pdf(revised_text, output_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Rebuild failed: {e}")
+
+    return {
+        "status": "edited",
+        "filename": request.filename,
+        "summary": f"Applied: {request.instruction[:120]}",
+    }
+
+
 @router.post("/outputs/chat")
 async def chat_with_doc(request: DocChatRequest):
     """Chat with a document — ask questions or request edits."""

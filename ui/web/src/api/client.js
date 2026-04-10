@@ -34,6 +34,9 @@ export const previewDocument = (filename) =>
 export const chatWithDoc = (filename, message, history) =>
   api.post('/outputs/chat', { filename, message, history }).then(r => r.data)
 
+export const editDocument = (filename, instruction) =>
+  api.post('/outputs/edit', { filename, instruction }).then(r => r.data)
+
 export const listSkills = () =>
   api.get('/skills').then(r => r.data)
 
