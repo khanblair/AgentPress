@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
 import { useJobPolling } from '../hooks/useJobPolling'
-import { getJobMessages } from '../api/client'
 import { AGENTS } from '../constants/agents'
-import { CheckCircle, XCircle, Loader, Circle, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react'
+import {
+  CheckCircle, XCircle, Loader, Circle,
+  AlertTriangle, ChevronDown, ChevronUp,
+} from 'lucide-react'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -17,15 +18,6 @@ const DEPT_LABEL = {
   meta_engineer: 'Self-Evolution',
 }
 
-const DEPT_DESC = {
-  orchestrator:  'Parsing prompt, building document spec and task plan',
-  researcher:    'Querying knowledge base and gathering research data',
-  synthesizer:   'Drafting document content from research brief',
-  designer:      'Writing and executing brand formatting code',
-  inspector:     'Running 2-stage QA — factual accuracy + brand compliance',
-  meta_engineer: 'Writing new skill to fix recurring failure',
-}
-
 const STATUS_COLORS = {
   done:    { icon: '#44ddc1', bg: 'rgba(68,221,193,0.08)',  border: 'rgba(68,221,193,0.25)'  },
   running: { icon: '#cdbdff', bg: 'rgba(205,189,255,0.1)',  border: 'rgba(205,189,255,0.35)' },
@@ -33,11 +25,11 @@ const STATUS_COLORS = {
   pending: { icon: '#494456', bg: 'transparent',            border: 'rgba(73,68,86,0.4)'     },
 }
 
-const MSG_TYPE_STYLE = {
-  success: { color: '#44ddc1', dot: '#44ddc1' },
-  warning: { color: '#fbbf24', dot: '#fbbf24' },
-  error:   { color: '#f87171', dot: '#f87171' },
-  info:    { color: 'var(--on-surface-var)', dot: 'var(--outline)' },
+const MSG_STYLE = {
+  success: '#44ddc1',
+  warning: '#fbbf24',
+  error:   '#f87171',
+  info:    'var(--on-surface-var)',
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -49,31 +41,71 @@ function elapsed(startedAt, finishedAt) {
   return secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`
 }
 
+// ── SSE hook — streams /jobs/:id/stream ────────────────────────────────────────
+
+function useJobStream(jobId) {
+  const [messagesByAgent, setMessagesByAgent] = useState({})
+  const [streamDone, setStreamDone] = useState(false)
+  const esRef = useRef(null)
+
+  useEffect(() => {
+    if (!jobId) return
+    setMessagesByAgent({})
+    setStreamDone(false)
+
+    const es = new EventSource(`/api/v1/jobs/${jobId}/stream`)
+    esRef.current = es
+
+    es.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data)
+        if (msg.type === 'done') {
+          setStreamDone(true)
+          es.close()
+          return
+        }
+        if (!msg.agent) return
+        setMessagesByAgent(prev => ({
+          ...prev,
+          [msg.agent]: [...(prev[msg.agent] || []), msg],
+        }))
+      } catch {}
+    }
+
+    es.onerror = () => {
+      setStreamDone(true)
+      es.close()
+    }
+
+    return () => {
+      es.close()
+    }
+  }, [jobId])
+
+  return { messagesByAgent, streamDone }
+}
+
 // ── Message bubble ─────────────────────────────────────────────────────────────
 
 function MessageBubble({ msg }) {
-  const style = MSG_TYPE_STYLE[msg.type] || MSG_TYPE_STYLE.info
+  const color = MSG_STYLE[msg.type] || MSG_STYLE.info
   return (
-    <div className="flex items-start gap-2 py-1">
-      <span className="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0" style={{ background: style.dot }} />
-      <p className="text-xs leading-relaxed break-words" style={{ color: style.color }}>
-        {msg.content}
-      </p>
+    <div className="flex items-start gap-2 py-0.5">
+      <span className="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0" style={{ background: color }} />
+      <p className="text-xs leading-relaxed break-words" style={{ color }}>{msg.content}</p>
     </div>
   )
 }
 
 // ── Agent step ─────────────────────────────────────────────────────────────────
 
-function AgentStep({ agentKey, agentData, messages, isLast, isJobActive }) {
+function AgentStep({ agentKey, agentData, messages, isLast }) {
   const agent = AGENTS.find(a => a.key === agentKey)
   const status = agentData?.status || 'pending'
   const err = agentData?.error
   const time = elapsed(agentData?.started_at, agentData?.finished_at)
   const c = STATUS_COLORS[status] || STATUS_COLORS.pending
 
-  // Auto-expand when running, collapse when done (unless it had messages)
-  const hasMessages = messages.length > 0
   const [expanded, setExpanded] = useState(false)
   const bottomRef = useRef(null)
 
@@ -82,12 +114,12 @@ function AgentStep({ agentKey, agentData, messages, isLast, isJobActive }) {
     if (status === 'running') setExpanded(true)
   }, [status])
 
-  // Auto-scroll to latest message while running
+  // Auto-scroll to latest message
   useEffect(() => {
-    if (status === 'running' && expanded) {
+    if (expanded) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
     }
-  }, [messages.length, status, expanded])
+  }, [messages.length, expanded])
 
   const StatusIcon = () => {
     if (status === 'done')    return <CheckCircle size={16} color={c.icon} strokeWidth={2} />
@@ -98,7 +130,7 @@ function AgentStep({ agentKey, agentData, messages, isLast, isJobActive }) {
 
   return (
     <div className="flex gap-4">
-      {/* Connector line */}
+      {/* Connector */}
       <div className="flex flex-col items-center">
         <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
           style={{ background: c.bg, border: `1px solid ${c.border}` }}>
@@ -116,7 +148,7 @@ function AgentStep({ agentKey, agentData, messages, isLast, isJobActive }) {
       {/* Content */}
       <div className="flex flex-col gap-1 pb-6 flex-1 min-w-0">
 
-        {/* Header row */}
+        {/* Header */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <agent.Icon size={13} strokeWidth={1.75} style={{ color: c.icon }} />
@@ -130,55 +162,51 @@ function AgentStep({ agentKey, agentData, messages, isLast, isJobActive }) {
             </span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {time && (
-              <span className="text-xs" style={{ color: 'var(--outline)' }}>{time}</span>
-            )}
-            {hasMessages && (
+            {time && <span className="text-xs" style={{ color: 'var(--outline)' }}>{time}</span>}
+            {messages.length > 0 && (
               <button
                 onClick={() => setExpanded(v => !v)}
-                className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded transition-all"
+                className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded"
                 style={{ color: 'var(--outline)', background: 'var(--surface-highest)' }}>
-                {expanded
-                  ? <ChevronUp size={11} strokeWidth={2} />
-                  : <ChevronDown size={11} strokeWidth={2} />}
+                {expanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
                 {messages.length}
               </button>
             )}
           </div>
         </div>
 
-        {/* Static description (only when pending or no messages) */}
-        {(!hasMessages || status === 'pending') && (
-          <p className="text-xs" style={{ color: status === 'pending' ? 'var(--outline-var)' : 'var(--on-surface-var)' }}>
-            {DEPT_DESC[agentKey]}
-          </p>
-        )}
-
         {/* Live message feed */}
-        {hasMessages && expanded && (
-          <div className="mt-1 rounded-lg px-3 py-2 flex flex-col"
+        {messages.length > 0 && expanded && (
+          <div className="mt-1 rounded-lg px-3 py-2 flex flex-col gap-0.5"
             style={{
               background: 'var(--surface-highest)',
               border: `1px solid ${c.border}`,
-              maxHeight: '220px',
+              maxHeight: '200px',
               overflowY: 'auto',
             }}>
             {messages.map((msg, i) => (
               <MessageBubble key={msg.id ?? i} msg={msg} />
             ))}
-            {/* Typing indicator while running */}
             {status === 'running' && (
-              <div className="flex items-center gap-1.5 pt-1">
-                <span className="w-1 h-1 rounded-full animate-bounce" style={{ background: c.icon, animationDelay: '0ms' }} />
-                <span className="w-1 h-1 rounded-full animate-bounce" style={{ background: c.icon, animationDelay: '150ms' }} />
-                <span className="w-1 h-1 rounded-full animate-bounce" style={{ background: c.icon, animationDelay: '300ms' }} />
+              <div className="flex items-center gap-1 pt-1">
+                {[0, 150, 300].map(d => (
+                  <span key={d} className="w-1 h-1 rounded-full animate-bounce"
+                    style={{ background: c.icon, animationDelay: `${d}ms` }} />
+                ))}
               </div>
             )}
             <div ref={bottomRef} />
           </div>
         )}
 
-        {/* Error detail */}
+        {/* Pending description */}
+        {messages.length === 0 && status === 'pending' && (
+          <p className="text-xs" style={{ color: 'var(--outline-var)' }}>
+            Waiting...
+          </p>
+        )}
+
+        {/* Error */}
         {err && (
           <div className="flex items-start gap-2 mt-1 px-3 py-2 rounded-lg text-xs"
             style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', color: '#f87171' }}>
@@ -197,25 +225,7 @@ export default function ActivePipeline() {
   const { jobId } = useParams()
   const navigate = useNavigate()
   const { job, error } = useJobPolling(jobId, 1500)
-
-  const isJobActive = job?.status === 'processing' || job?.status === 'queued'
-
-  // Poll job messages while active, slow down when done
-  const { data: msgData } = useQuery({
-    queryKey: ['jobMessages', jobId],
-    queryFn: () => getJobMessages(jobId),
-    enabled: !!jobId,
-    refetchInterval: isJobActive ? 1000 : 3000,
-  })
-
-  const allMessages = msgData?.messages || []
-
-  // Group messages by agent key
-  const messagesByAgent = {}
-  for (const msg of allMessages) {
-    if (!messagesByAgent[msg.agent]) messagesByAgent[msg.agent] = []
-    messagesByAgent[msg.agent].push(msg)
-  }
+  const { messagesByAgent } = useJobStream(jobId)
 
   if (!jobId) return (
     <div className="p-12 text-center" style={{ color: 'var(--on-surface-var)' }}>
@@ -247,8 +257,6 @@ export default function ActivePipeline() {
             {jobId?.slice(0, 8)}
           </p>
         </div>
-
-        {/* Status badge */}
         {job && (
           <span className="px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wide"
             style={{
@@ -264,7 +272,7 @@ export default function ActivePipeline() {
       </div>
 
       {/* Progress bar */}
-      {job && job.status === 'processing' && (
+      {job?.status === 'processing' && (
         <div className="flex flex-col gap-1.5">
           <div className="flex justify-between text-xs" style={{ color: 'var(--on-surface-var)' }}>
             <span>{completedCount} of {totalCount} agents complete</span>
@@ -277,7 +285,7 @@ export default function ActivePipeline() {
         </div>
       )}
 
-      {/* QA retry / evolution badges */}
+      {/* QA / evolution badges */}
       {job && (job.qa_retry_count > 0 || job.evolution_triggered) && (
         <div className="flex gap-2">
           {job.qa_retry_count > 0 && (
@@ -295,7 +303,7 @@ export default function ActivePipeline() {
         </div>
       )}
 
-      {/* Agent steps with live messages */}
+      {/* Agent steps */}
       <div className="flex flex-col mt-2">
         {agentKeys.map((key, i) => (
           <AgentStep
@@ -304,7 +312,6 @@ export default function ActivePipeline() {
             agentData={agents[key]}
             messages={messagesByAgent[key] || []}
             isLast={i === agentKeys.length - 1}
-            isJobActive={isJobActive}
           />
         ))}
       </div>
@@ -318,7 +325,6 @@ export default function ActivePipeline() {
         </div>
       )}
 
-      {/* Connecting... */}
       {!job && !error && (
         <p className="text-sm animate-pulse" style={{ color: 'var(--on-surface-var)' }}>
           Connecting to pipeline...

@@ -291,6 +291,41 @@ async def get_job_messages(job_id: str):
     return {"job_id": job_id, "messages": get_messages(job_id)}
 
 
+@router.get("/jobs/{job_id}/stream")
+async def stream_job_messages(job_id: str):
+    """SSE stream of per-job agent messages — delivers in real-time as agents post them."""
+    from app.agents.messenger import get_messages
+
+    async def event_generator():
+        sent = 0
+        # Stream until job is terminal, then flush remaining and close
+        while True:
+            messages = get_messages(job_id)
+            new_msgs = messages[sent:]
+            for msg in new_msgs:
+                yield f"data: {json.dumps(msg)}\n\n"
+                sent += 1
+
+            # Check job status
+            job = jobs.get(job_id)
+            if job and job.get("status") in ("completed", "failed"):
+                # One final flush pass then close
+                messages = get_messages(job_id)
+                for msg in messages[sent:]:
+                    yield f"data: {json.dumps(msg)}\n\n"
+                    sent += 1
+                yield f"data: {json.dumps({'type': 'done', 'status': job['status']})}\n\n"
+                break
+
+            await asyncio.sleep(0.2)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 # ── Global agent chat room ─────────────────────────────────────────────────────
 
 class UserChatRequest(BaseModel):
