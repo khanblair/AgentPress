@@ -16,12 +16,11 @@ theme:
 
 nav:
   - Dashboard: index.md
-  - Evolution Log: evolutions/
-  - Document Ledger: document_ledger/
+  - Evolution Log: evolutions/index.md
+  - Document Ledger: document_ledger/index.md
 
 plugins:
   - search
-  - awesome-pages
 
 markdown_extensions:
   - admonition
