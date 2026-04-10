@@ -429,8 +429,31 @@ async def preview_output(filename: str):
                     if any(c.strip() for c in row_data):
                         rows.append(row_data)
                 content.append({"type": "sheet", "name": sheet_name, "rows": rows})
+        elif ext == ".pdf":
+            try:
+                import pdfplumber
+                with pdfplumber.open(str(file_path)) as pdf:
+                    content = []
+                    for page_num, page in enumerate(pdf.pages, 1):
+                        text = page.extract_text() or ""
+                        for line in text.splitlines():
+                            line = line.strip()
+                            if not line:
+                                continue
+                            # Heuristic: short ALL-CAPS or title-case lines are headings
+                            if len(line) < 80 and (line.isupper() or (line.istitle() and len(line.split()) <= 8)):
+                                content.append({"type": "h2", "text": line, "runs": []})
+                            elif line.startswith(("•", "-", "*")):
+                                content.append({"type": "bullet", "text": line.lstrip("•-* "), "runs": []})
+                            else:
+                                content.append({"type": "paragraph", "text": line, "runs": []})
+                        if page_num < len(pdf.pages):
+                            content.append({"type": "page_break", "text": f"— Page {page_num} —", "runs": []})
+            except ImportError:
+                # pdfplumber not installed — basic fallback message
+                content = [{"type": "paragraph", "text": "PDF preview requires pdfplumber. Install with: pip install pdfplumber", "runs": []}]
         else:
-            content = [{"type": "paragraph", "text": f"Preview not available for {ext} files."}]
+            content = [{"type": "paragraph", "text": f"Preview not available for {ext} files.", "runs": []}]
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Preview failed: {str(e)}")

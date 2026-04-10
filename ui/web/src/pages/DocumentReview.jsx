@@ -266,6 +266,52 @@ function DocPreview({ filename }) {
     </div>
   )
 
+  // ── PDF — reuses the DOCX block renderer ──
+  if (extension === 'pdf') return (
+    <div className="overflow-y-auto h-full">
+      <div className="max-w-2xl mx-auto py-10 px-12" style={{ background: '#fff', minHeight: '100%', color: '#1a1a1a' }}>
+        {content.map((block, i) => {
+          if (block.type === 'page_break') return (
+            <div key={i} className="flex items-center gap-3 my-6">
+              <div className="flex-1 h-px" style={{ background: '#e5e7eb' }} />
+              <span className="text-[10px] uppercase tracking-widest px-2" style={{ color: '#bbb' }}>{block.text}</span>
+              <div className="flex-1 h-px" style={{ background: '#e5e7eb' }} />
+            </div>
+          )
+          if (block.type === 'h1') return (
+            <h1 key={i} className="text-2xl font-bold mt-8 mb-3 first:mt-0"
+              style={{ color: '#1A1A2E', fontFamily: 'Calibri, Arial, sans-serif', borderBottom: '2px solid #E94560', paddingBottom: '6px' }}>
+              {block.text}
+            </h1>
+          )
+          if (block.type === 'h2') return (
+            <h2 key={i} className="text-xl font-bold mt-6 mb-2"
+              style={{ color: '#E94560', fontFamily: 'Calibri, Arial, sans-serif' }}>
+              {block.text}
+            </h2>
+          )
+          if (block.type === 'bullet') return (
+            <div key={i} className="flex gap-2 my-1 ml-4">
+              <span style={{ color: '#E94560', flexShrink: 0 }}>•</span>
+              <p className="text-sm leading-relaxed" style={{ fontFamily: 'Calibri, Arial, sans-serif', color: '#333' }}>
+                {block.text}
+              </p>
+            </div>
+          )
+          return (
+            <p key={i} className="text-sm leading-relaxed my-2"
+              style={{ fontFamily: 'Calibri, Arial, sans-serif', color: '#333' }}>
+              {block.text}
+            </p>
+          )
+        })}
+        <p className="text-xs mt-12 text-center" style={{ color: '#aaa', borderTop: '1px solid #eee', paddingTop: '12px' }}>
+          CONFIDENTIAL - AgentPress Internal
+        </p>
+      </div>
+    </div>
+  )
+
   return <p className="p-4 text-sm" style={{ color: 'var(--on-surface-var)' }}>Preview not available.</p>
 }
 

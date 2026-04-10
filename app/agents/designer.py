@@ -5,8 +5,8 @@ Skill: Calls deterministic document builders directly — no LLM code generation
 Pipeline:
   PPTX → app/tools/document_skills/pptx_builder.py
   DOCX → app/tools/document_skills/docx_builder.py
-  XLSX → app/tools/document_skills/xlsx_builder.py (openpyxl)
-  PDF  → reportlab fallback
+  XLSX → app/tools/document_skills/xlsx_builder.py
+  PDF  → app/tools/document_skills/pdf_builder.py
 """
 
 from pathlib import Path
@@ -49,7 +49,8 @@ def run_designer(state: AgentState) -> AgentState:
             tdd_passed = build_xlsx(draft_text, output_path)
 
         elif output_format == "pdf":
-            tdd_passed = _build_pdf(draft_text, output_path)
+            from app.tools.document_skills.pdf_builder import build_pdf
+            tdd_passed = build_pdf(draft_text, output_path)
 
         else:
             raise ValueError(f"Unsupported output format: {output_format}")
@@ -75,46 +76,3 @@ def run_designer(state: AgentState) -> AgentState:
         "tdd_passed": tdd_passed,
         "error_log": exec_error if not tdd_passed else state.get("error_log", ""),
     }
-
-
-def _build_pdf(draft_text: str, output_path: str) -> bool:
-    """Build a basic PDF from draft text using reportlab."""
-    import re
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.units import cm
-    from reportlab.lib import colors
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-
-    BRAND_NAVY  = colors.HexColor("#1A1A2E")
-    BRAND_RED   = colors.HexColor("#E94560")
-
-    doc = SimpleDocTemplate(output_path, pagesize=A4,
-                            leftMargin=3*cm, rightMargin=3*cm,
-                            topMargin=2.5*cm, bottomMargin=2.5*cm)
-    styles = getSampleStyleSheet()
-    heading_style = ParagraphStyle("BrandH1", parent=styles["Heading1"],
-                                   textColor=BRAND_RED, fontName="Helvetica-Bold", fontSize=14)
-    body_style    = ParagraphStyle("BrandBody", parent=styles["Normal"],
-                                   textColor=BRAND_NAVY, fontName="Helvetica", fontSize=11,
-                                   leading=16)
-
-    story = []
-    sections = re.split(r"^##\s+", draft_text, flags=re.MULTILINE)
-
-    for section in sections:
-        if not section.strip():
-            continue
-        lines = section.strip().splitlines()
-        story.append(Paragraph(lines[0].strip(), heading_style))
-        story.append(Spacer(1, 0.3*cm))
-        for line in lines[1:]:
-            line = line.strip()
-            if line:
-                story.append(Paragraph(line.lstrip("•-* "), body_style))
-        story.append(Spacer(1, 0.5*cm))
-
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    doc.build(story)
-    assert Path(output_path).exists()
-    return True

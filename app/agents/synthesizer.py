@@ -50,7 +50,7 @@ Engineering | $120,000 | $45,000 | $75,000 | Salaries only""" if output_format =
     format_instructions = {
         "pptx": "- Write each slide as '## Slide N: [Title]' followed by 4-6 bullet points.",
         "docx": "- Write each section as '## Section Title' followed by paragraphs and bullet points (- item).",
-        "pdf":  "- Write each section as '## Section Title' followed by paragraphs and bullet points (- item).",
+        "pdf":  "- Write each section as '## Section Title' followed by paragraphs and bullet points (- item).\n- Use ### for sub-headings within sections.\n- Keep paragraphs concise — 2-4 sentences each.\n- Use bullet points (- item) for lists, not numbered lists.",
         "xlsx": xlsx_instructions,
     }.get(output_format, "")
 

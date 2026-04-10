@@ -61,6 +61,26 @@ const TEMPLATES = [
       },
     ],
   },
+  {
+    category: 'PDF Documents',
+    items: [
+      {
+        label: 'Business Proposal',
+        format: 'pdf',
+        prompt: 'Write a professional business proposal PDF for an enterprise AI automation service. Include executive summary, problem statement, proposed solution, scope of work, timeline, pricing, team credentials, and next steps.',
+      },
+      {
+        label: 'Strategy Report',
+        format: 'pdf',
+        prompt: 'Write a strategic planning report PDF for a tech company entering a new market. Cover market opportunity, strategic objectives, competitive positioning, go-to-market plan, resource requirements, risk assessment, and success metrics.',
+      },
+      {
+        label: 'Project Brief',
+        format: 'pdf',
+        prompt: 'Write a project brief PDF for a 90-day digital transformation initiative. Include project background, objectives, deliverables, stakeholders, timeline with milestones, budget overview, risks, and approval sign-off section.',
+      },
+    ],
+  },
 ]
 
 export default function MainWorkspace() {
