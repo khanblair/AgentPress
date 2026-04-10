@@ -1,44 +1,62 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { listOutputs, getDownloadUrl, previewDocument, chatWithDoc, editDocument } from '../api/client'
 import { Download, Send, FileText, Table, Presentation, File, Pencil, CheckCircle, Loader } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 
-// Shared markdown renderer for chat bubbles
+const EXT_ICON  = { pptx: Presentation, docx: FileText, xlsx: Table, pdf: File }
+const EXT_COLOR = { pptx: '#f9a8d4', docx: 'var(--primary)', xlsx: '#44ddc1', pdf: '#fbbf24' }
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+function loadChatState(filename) {
+  try {
+    const raw = localStorage.getItem(`doc_chat_${filename}`)
+    if (raw) return JSON.parse(raw)
+  } catch {}
+  return [{ role: 'assistant', content: `I've read **${filename}**. Ask me anything about it, or tell me what to change.` }]
+}
+
+function saveChatState(filename, messages) {
+  try { localStorage.setItem(`doc_chat_${filename}`, JSON.stringify(messages)) } catch {}
+}
+
+function isEditSuggestion(content) {
+  const l = content.toLowerCase()
+  return l.includes('revised') || l.includes('updated') || l.includes('changed') ||
+         l.includes('replaced') || l.includes('rewritten') || l.includes('new version') ||
+         l.includes('edited') || l.includes('here is') || l.includes("here's")
+}
+
+// ── Markdown renderer ──────────────────────────────────────────────────────────
+
 function MarkdownMsg({ content }) {
   return (
-    <ReactMarkdown
-      components={{
-        p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
-        strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-        em: ({ children }) => <em className="italic">{children}</em>,
-        ul: ({ children }) => <ul className="list-disc ml-4 mb-1">{children}</ul>,
-        ol: ({ children }) => <ol className="list-decimal ml-4 mb-1">{children}</ol>,
-        li: ({ children }) => <li className="mb-0.5">{children}</li>,
-        code: ({ children }) => (
-          <code className="px-1 py-0.5 rounded text-xs font-mono"
-            style={{ background: 'rgba(0,0,0,0.08)' }}>{children}</code>
-        ),
-      }}>
+    <ReactMarkdown components={{
+      p:      ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
+      strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+      em:     ({ children }) => <em className="italic">{children}</em>,
+      ul:     ({ children }) => <ul className="list-disc ml-4 mb-1">{children}</ul>,
+      ol:     ({ children }) => <ol className="list-decimal ml-4 mb-1">{children}</ol>,
+      li:     ({ children }) => <li className="mb-0.5">{children}</li>,
+      code:   ({ children }) => (
+        <code className="px-1 py-0.5 rounded text-xs font-mono"
+          style={{ background: 'rgba(0,0,0,0.08)' }}>{children}</code>
+      ),
+    }}>
       {content}
     </ReactMarkdown>
   )
 }
 
-const EXT_ICON = { pptx: Presentation, docx: FileText, xlsx: Table, pdf: File }
-const EXT_COLOR = { pptx: '#f9a8d4', docx: 'var(--primary)', xlsx: '#44ddc1', pdf: '#fbbf24' }
+// ── Rich text (DOCX inline formatting) ────────────────────────────────────────
 
-// ── Document preview renderer ──────────────────────────────────────────────────
 function RichText({ runs, text }) {
   if (!runs || runs.length === 0) return <span>{text}</span>
   return (
     <>
       {runs.map((r, i) => (
-        <span key={i}
-          style={{
-            fontWeight: r.bold ? 700 : 400,
-            fontStyle: r.italic ? 'italic' : 'normal',
-          }}>
+        <span key={i} style={{ fontWeight: r.bold ? 700 : 400, fontStyle: r.italic ? 'italic' : 'normal' }}>
           {r.text}
         </span>
       ))}
@@ -46,11 +64,14 @@ function RichText({ runs, text }) {
   )
 }
 
+// ── Document preview ───────────────────────────────────────────────────────────
+
 function DocPreview({ filename }) {
   const { data, isLoading, error } = useQuery({
     queryKey: ['preview', filename],
     queryFn: () => previewDocument(filename),
     enabled: !!filename,
+    staleTime: 0,
   })
 
   if (isLoading) return (
@@ -58,14 +79,11 @@ function DocPreview({ filename }) {
       <p className="text-sm animate-pulse" style={{ color: 'var(--on-surface-var)' }}>Loading preview...</p>
     </div>
   )
-  if (error) return (
-    <p className="text-sm p-6" style={{ color: '#f87171' }}>Preview failed: {error.message}</p>
-  )
+  if (error) return <p className="text-sm p-6" style={{ color: '#f87171' }}>Preview failed: {error.message}</p>
   if (!data) return null
 
   const { extension, content } = data
 
-  // ── DOCX ──
   if (extension === 'docx') return (
     <div className="overflow-y-auto h-full">
       <div className="max-w-2xl mx-auto py-10 px-12" style={{ background: '#fff', minHeight: '100%', color: '#1a1a1a' }}>
@@ -110,46 +128,32 @@ function DocPreview({ filename }) {
     </div>
   )
 
-  // ── PPTX ──
   if (extension === 'pptx') return (
     <div className="overflow-y-auto h-full" style={{ background: '#f0f0f0' }}>
       <div className="max-w-3xl mx-auto py-8 px-6 flex flex-col gap-6">
         {content.map((slide) => {
-          // Flatten all paragraphs across all shapes
           const allParas = (slide.shapes || []).flatMap(s => s.paragraphs || [])
-          const title = allParas[0]
+          const title   = allParas[0]
           const bullets = allParas.slice(1).filter(p => p.text.trim())
-
           return (
-            <div key={slide.index}
-              className="rounded-xl overflow-hidden"
-              style={{
-                background: '#fff',
-                boxShadow: '0 2px 12px rgba(0,0,0,0.12)',
-              }}>
-              {/* Slide header — brand navy */}
+            <div key={slide.index} className="rounded-xl overflow-hidden"
+              style={{ background: '#fff', boxShadow: '0 2px 12px rgba(0,0,0,0.12)' }}>
               <div className="flex items-center gap-3 px-6 py-4"
                 style={{ background: '#1A1A2E', borderBottom: '3px solid #E94560' }}>
                 <span className="text-xs font-bold px-2 py-0.5 rounded"
-                  style={{ background: '#E94560', color: '#fff' }}>
-                  {slide.index}
-                </span>
+                  style={{ background: '#E94560', color: '#fff' }}>{slide.index}</span>
                 <h3 className="text-base font-bold"
                   style={{ color: '#EAEAEA', fontFamily: 'Calibri, Arial, sans-serif' }}>
                   {title?.text || `Slide ${slide.index}`}
                 </h3>
               </div>
-
-              {/* Slide body — white */}
               {bullets.length > 0 && (
                 <div className="px-6 py-5 flex flex-col gap-2.5">
                   {bullets.map((para, pi) => (
                     <div key={pi} className="flex gap-3 items-start"
                       style={{ paddingLeft: para.level > 0 ? `${para.level * 20}px` : '0' }}>
-                      <span className="mt-2 shrink-0 w-1.5 h-1.5 rounded-full"
-                        style={{ background: '#E94560' }} />
-                      <p className="text-sm leading-relaxed"
-                        style={{ color: '#333', fontFamily: 'Calibri, Arial, sans-serif' }}>
+                      <span className="mt-2 shrink-0 w-1.5 h-1.5 rounded-full" style={{ background: '#E94560' }} />
+                      <p className="text-sm leading-relaxed" style={{ color: '#333', fontFamily: 'Calibri, Arial, sans-serif' }}>
                         {para.text}
                       </p>
                     </div>
@@ -159,96 +163,62 @@ function DocPreview({ filename }) {
             </div>
           )
         })}
-        <p className="text-xs text-center pb-4" style={{ color: '#aaa' }}>
-          CONFIDENTIAL - AgentPress Internal
-        </p>
+        <p className="text-xs text-center pb-4" style={{ color: '#aaa' }}>CONFIDENTIAL - AgentPress Internal</p>
       </div>
     </div>
   )
 
-  // ── XLSX ──
   if (extension === 'xlsx') return (
-    <div className="overflow-y-auto h-full p-5 flex flex-col gap-8"
-      style={{ background: 'var(--surface)' }}>
+    <div className="overflow-y-auto h-full p-5 flex flex-col gap-8" style={{ background: 'var(--surface)' }}>
       {content.map((sheet) => (
         <div key={sheet.name}>
-          {/* Sheet tab label */}
           <div className="flex items-center gap-2 mb-3">
             <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded"
               style={{ background: '#1A1A2E', color: '#EAEAEA' }}>SHEET</span>
             <p className="text-sm font-semibold" style={{ color: 'var(--on-surface)' }}>{sheet.name}</p>
           </div>
-
           <div className="overflow-x-auto rounded-xl"
             style={{ border: '1px solid var(--outline-var)', boxShadow: '0 1px 6px rgba(0,0,0,0.06)' }}>
             <table className="w-full text-xs border-collapse" style={{ fontFamily: 'Calibri, Arial, sans-serif' }}>
               <tbody>
                 {sheet.rows.map((row, ri) => {
-                  // Detect section heading rows: single non-empty cell, dark background from builder
                   const isSectionRow = row.filter(c => c && c.trim()).length === 1 && ri > 0
-                  // First row of each table block is the column header (crimson in builder)
-                  const isColHeader = !isSectionRow && ri > 0 && row.length > 1 &&
+                  const isColHeader  = !isSectionRow && ri > 0 && row.length > 1 &&
                     sheet.rows[ri - 1]?.filter(c => c && c.trim()).length === 1
-
-                  if (ri === 0) {
-                    // Very first row — treat as sheet title / section heading
-                    return (
-                      <tr key={ri} style={{ background: '#1A1A2E' }}>
-                        <td colSpan={Math.max(...sheet.rows.map(r => r.length))}
-                          className="px-4 py-2.5 text-sm font-bold"
-                          style={{ color: '#EAEAEA', letterSpacing: '0.01em' }}>
-                          {row.find(c => c && c.trim()) || ''}
+                  if (ri === 0) return (
+                    <tr key={ri} style={{ background: '#1A1A2E' }}>
+                      <td colSpan={Math.max(...sheet.rows.map(r => r.length))}
+                        className="px-4 py-2.5 text-sm font-bold" style={{ color: '#EAEAEA' }}>
+                        {row.find(c => c && c.trim()) || ''}
+                      </td>
+                    </tr>
+                  )
+                  if (isSectionRow) return (
+                    <tr key={ri} style={{ background: '#1A1A2E' }}>
+                      <td colSpan={Math.max(...sheet.rows.map(r => r.length))}
+                        className="px-4 py-2 text-xs font-bold uppercase tracking-wide" style={{ color: '#EAEAEA' }}>
+                        {row.find(c => c && c.trim())}
+                      </td>
+                    </tr>
+                  )
+                  if (isColHeader) return (
+                    <tr key={ri} style={{ background: '#E94560' }}>
+                      {row.map((cell, ci) => (
+                        <td key={ci} className="px-3 py-2 font-semibold text-center"
+                          style={{ color: '#fff', borderRight: ci < row.length - 1 ? '1px solid rgba(255,255,255,0.2)' : 'none', whiteSpace: 'nowrap' }}>
+                          {cell}
                         </td>
-                      </tr>
-                    )
-                  }
-
-                  if (isSectionRow) {
-                    return (
-                      <tr key={ri} style={{ background: '#1A1A2E' }}>
-                        <td colSpan={Math.max(...sheet.rows.map(r => r.length))}
-                          className="px-4 py-2 text-xs font-bold uppercase tracking-wide"
-                          style={{ color: '#EAEAEA' }}>
-                          {row.find(c => c && c.trim())}
-                        </td>
-                      </tr>
-                    )
-                  }
-
-                  if (isColHeader) {
-                    return (
-                      <tr key={ri} style={{ background: '#E94560' }}>
-                        {row.map((cell, ci) => (
-                          <td key={ci} className="px-3 py-2 font-semibold text-center"
-                            style={{
-                              color: '#fff',
-                              borderRight: ci < row.length - 1 ? '1px solid rgba(255,255,255,0.2)' : 'none',
-                              whiteSpace: 'nowrap',
-                            }}>
-                            {cell}
-                          </td>
-                        ))}
-                      </tr>
-                    )
-                  }
-
-                  // Regular data row — zebra stripe
+                      ))}
+                    </tr>
+                  )
                   return (
-                    <tr key={ri}
-                      style={{ background: ri % 2 === 0 ? '#F5F5F8' : '#FFFFFF' }}
+                    <tr key={ri} style={{ background: ri % 2 === 0 ? '#F5F5F8' : '#FFFFFF' }}
                       className="hover:brightness-95 transition-all">
                       {row.map((cell, ci) => (
-                        <td key={ci}
-                          className="px-3 py-2"
-                          style={{
-                            color: ci === 0 ? '#1A1A2E' : '#444',
-                            fontWeight: ci === 0 ? 600 : 400,
+                        <td key={ci} className="px-3 py-2"
+                          style={{ color: ci === 0 ? '#1A1A2E' : '#444', fontWeight: ci === 0 ? 600 : 400,
                             borderRight: ci < row.length - 1 ? '1px solid #E8E8EC' : 'none',
-                            borderBottom: '1px solid #E8E8EC',
-                            maxWidth: '280px',
-                            whiteSpace: 'normal',
-                            wordBreak: 'break-word',
-                          }}>
+                            borderBottom: '1px solid #E8E8EC', maxWidth: '280px', whiteSpace: 'normal', wordBreak: 'break-word' }}>
                           {cell}
                         </td>
                       ))}
@@ -260,13 +230,10 @@ function DocPreview({ filename }) {
           </div>
         </div>
       ))}
-      <p className="text-xs text-center pb-2" style={{ color: '#aaa' }}>
-        CONFIDENTIAL — AgentPress Internal
-      </p>
+      <p className="text-xs text-center pb-2" style={{ color: '#aaa' }}>CONFIDENTIAL — AgentPress Internal</p>
     </div>
   )
 
-  // ── PDF — reuses the DOCX block renderer ──
   if (extension === 'pdf') return (
     <div className="overflow-y-auto h-full">
       <div className="max-w-2xl mx-auto py-10 px-12" style={{ background: '#fff', minHeight: '100%', color: '#1a1a1a' }}>
@@ -315,126 +282,115 @@ function DocPreview({ filename }) {
   return <p className="p-4 text-sm" style={{ color: 'var(--on-surface-var)' }}>Preview not available.</p>
 }
 
-// ── Document chat ──────────────────────────────────────────────────────────────
-function DocChat({ filename, onEditApplied }) {
-  const storageKey = `doc_chat_${filename}`
-  const queryClient = useQueryClient()
+// ── Document chat — receives state from parent, never owns it ─────────────────
 
-  const [messages, setMessages] = useState(() => {
-    try {
-      const saved = localStorage.getItem(storageKey)
-      return saved ? JSON.parse(saved) : [
-        { role: 'assistant', content: `I've read **${filename}**. Ask me anything about it, or tell me what to change.` }
-      ]
-    } catch {
-      return [{ role: 'assistant', content: `I've read **${filename}**. Ask me anything about it, or tell me what to change.` }]
-    }
-  })
-
-  const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [editingMsgIdx, setEditingMsgIdx] = useState(null)
-  const [editStatus, setEditStatus] = useState(null) // null | 'applying' | 'done' | 'error'
+function DocChat({ filename, messages, onMessages, queryClient }) {
+  const [input, setInput]           = useState('')
+  const [loading, setLoading]       = useState(false)
+  const [applyingIdx, setApplyingIdx] = useState(null)  // index being applied
+  const [applyStatus, setApplyStatus] = useState({})    // { [idx]: 'applying'|'done'|'error' }
   const bottomRef = useRef(null)
 
   useEffect(() => {
-    try { localStorage.setItem(storageKey, JSON.stringify(messages)) } catch {}
-  }, [messages, storageKey])
-
-  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
-
-  // Detect if a message looks like an edit suggestion
-  const isEditSuggestion = (content) => {
-    const lower = content.toLowerCase()
-    return lower.includes('here') || lower.includes('revised') || lower.includes('updated') ||
-           lower.includes('changed') || lower.includes('replaced') || lower.includes('rewritten') ||
-           lower.includes('new version') || lower.includes('edited')
-  }
+  }, [messages.length])
 
   const send = async () => {
     if (!input.trim() || loading) return
-    const userMsg = { role: 'user', content: input }
-    setMessages(prev => [...prev, userMsg])
+    const instruction = input.trim()
+    const userMsg = { role: 'user', content: instruction }
+    onMessages(prev => {
+      const next = [...prev, userMsg]
+      saveChatState(filename, next)
+      return next
+    })
     setInput('')
     setLoading(true)
     try {
       const history = messages.slice(-6)
-      const { reply } = await chatWithDoc(filename, input, history)
-      setMessages(prev => [...prev, { role: 'assistant', content: reply, instruction: input }])
+      const { reply } = await chatWithDoc(filename, instruction, history)
+      onMessages(prev => {
+        const next = [...prev, { role: 'assistant', content: reply, instruction }]
+        saveChatState(filename, next)
+        return next
+      })
     } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Something went wrong. Try again.' }])
+      onMessages(prev => {
+        const next = [...prev, { role: 'assistant', content: 'Something went wrong. Try again.' }]
+        saveChatState(filename, next)
+        return next
+      })
     } finally {
       setLoading(false)
     }
   }
 
-  const applyEdit = async (msgIdx) => {
+  const applyEdit = useCallback(async (msgIdx) => {
     const msg = messages[msgIdx]
-    // Use the user instruction that prompted this reply
     const instruction = msg.instruction || messages[msgIdx - 1]?.content || msg.content
-    setEditingMsgIdx(msgIdx)
-    setEditStatus('applying')
+    setApplyingIdx(msgIdx)
+    setApplyStatus(s => ({ ...s, [msgIdx]: 'applying' }))
     try {
       await editDocument(filename, instruction)
-      setEditStatus('done')
-      // Invalidate preview cache so it reloads
+      setApplyStatus(s => ({ ...s, [msgIdx]: 'done' }))
+      // Invalidate preview — no remount needed
       queryClient.invalidateQueries({ queryKey: ['preview', filename] })
-      onEditApplied?.()
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: `✅ Edit applied to **${filename}**. The preview has been updated.`,
-      }])
-      setTimeout(() => { setEditingMsgIdx(null); setEditStatus(null) }, 2000)
+      onMessages(prev => {
+        const next = [...prev, {
+          role: 'assistant',
+          content: `✅ Edit applied to **${filename}**. Preview refreshed.`,
+        }]
+        saveChatState(filename, next)
+        return next
+      })
     } catch (e) {
-      setEditStatus('error')
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: `❌ Edit failed: ${e.response?.data?.detail || e.message}`,
-      }])
-      setTimeout(() => { setEditingMsgIdx(null); setEditStatus(null) }, 3000)
+      setApplyStatus(s => ({ ...s, [msgIdx]: 'error' }))
+      onMessages(prev => {
+        const next = [...prev, {
+          role: 'assistant',
+          content: `❌ Edit failed: ${e.response?.data?.detail || e.message}`,
+        }]
+        saveChatState(filename, next)
+        return next
+      })
+    } finally {
+      setApplyingIdx(null)
     }
-  }
+  }, [filename, messages, queryClient, onMessages])
 
   return (
     <div className="flex flex-col h-full">
-      {/* Messages */}
       <div className="flex-1 overflow-y-auto flex flex-col gap-3 p-4">
         {messages.map((msg, i) => (
           <div key={i} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
             <div className="max-w-[85%] px-3 py-2 rounded-xl text-sm leading-relaxed"
               style={{
                 background: msg.role === 'user' ? 'var(--primary-container)' : '#fff',
-                color: msg.role === 'user' ? 'var(--primary)' : '#333',
-                border: `1px solid ${msg.role === 'user' ? 'var(--primary)' : '#e5e7eb'}`,
+                color:      msg.role === 'user' ? 'var(--primary)' : '#333',
+                border:     `1px solid ${msg.role === 'user' ? 'var(--primary)' : '#e5e7eb'}`,
               }}>
               <MarkdownMsg content={msg.content} />
             </div>
-            {/* Apply Edit button for assistant messages that look like edits */}
+
+            {/* Apply Edit button — shown on assistant messages that look like edits */}
             {msg.role === 'assistant' && i > 0 && isEditSuggestion(msg.content) && (
               <button
                 onClick={() => applyEdit(i)}
-                disabled={editingMsgIdx !== null}
+                disabled={applyingIdx !== null}
                 className="flex items-center gap-1.5 mt-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all disabled:opacity-50"
                 style={{
-                  background: editingMsgIdx === i && editStatus === 'done'
-                    ? 'rgba(68,221,193,0.15)' : 'var(--primary-container)',
-                  color: editingMsgIdx === i && editStatus === 'done'
-                    ? '#44ddc1' : 'var(--primary)',
-                  border: `1px solid ${editingMsgIdx === i && editStatus === 'done' ? '#44ddc1' : 'var(--primary)'}`,
+                  background: applyStatus[i] === 'done' ? 'rgba(68,221,193,0.15)' : 'var(--primary-container)',
+                  color:      applyStatus[i] === 'done' ? '#44ddc1' : 'var(--primary)',
+                  border:     `1px solid ${applyStatus[i] === 'done' ? '#44ddc1' : 'var(--primary)'}`,
                 }}>
-                {editingMsgIdx === i && editStatus === 'applying' ? (
-                  <><Loader size={11} className="animate-spin" /> Applying...</>
-                ) : editingMsgIdx === i && editStatus === 'done' ? (
-                  <><CheckCircle size={11} /> Applied</>
-                ) : (
-                  <><Pencil size={11} /> Apply Edit to File</>
-                )}
+                {applyStatus[i] === 'applying' ? <><Loader size={11} className="animate-spin" /> Applying...</> :
+                 applyStatus[i] === 'done'     ? <><CheckCircle size={11} /> Applied</> :
+                                                 <><Pencil size={11} /> Apply Edit to File</>}
               </button>
             )}
           </div>
         ))}
+
         {loading && (
           <div className="flex justify-start">
             <div className="px-3 py-2 rounded-xl text-sm animate-pulse"
@@ -446,7 +402,6 @@ function DocChat({ filename, onEditApplied }) {
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
       <div className="flex gap-2 p-3 shrink-0" style={{ borderTop: '1px solid var(--outline-var)' }}>
         <input
           value={input}
@@ -467,16 +422,44 @@ function DocChat({ filename, onEditApplied }) {
 }
 
 // ── Main page ──────────────────────────────────────────────────────────────────
+
 export default function DocumentReview() {
-  const { data, isLoading } = useQuery({ queryKey: ['outputs'], queryFn: listOutputs, refetchInterval: 8000 })
+  const queryClient = useQueryClient()
+  const { data, isLoading } = useQuery({
+    queryKey: ['outputs'],
+    queryFn: listOutputs,
+    refetchInterval: 8000,
+  })
+
   const [selected, setSelected] = useState(null)
 
-  // Auto-select most recent file
+  // Chat state lives here — keyed by filename — survives file switching and navigation
+  const [chatsByFile, setChatsByFile] = useState({})
+
+  // Auto-select most recent file on first load
   useEffect(() => {
     if (data?.files?.length && !selected) {
       setSelected(data.files[0])
     }
   }, [data])
+
+  // When a file is selected, ensure its chat history is loaded from localStorage
+  useEffect(() => {
+    if (!selected) return
+    setChatsByFile(prev => {
+      if (prev[selected.name]) return prev   // already loaded
+      return { ...prev, [selected.name]: loadChatState(selected.name) }
+    })
+  }, [selected?.name])
+
+  const handleMessages = useCallback((filename, updater) => {
+    setChatsByFile(prev => ({
+      ...prev,
+      [filename]: typeof updater === 'function' ? updater(prev[filename] || []) : updater,
+    }))
+  }, [])
+
+  const currentMessages = selected ? (chatsByFile[selected.name] || loadChatState(selected.name)) : []
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -488,13 +471,13 @@ export default function DocumentReview() {
           <p className="text-sm font-semibold" style={{ color: 'var(--on-surface)' }}>Documents</p>
           <p className="text-xs mt-0.5" style={{ color: 'var(--on-surface-var)' }}>{data?.total || 0} files</p>
         </div>
-
         <div className="flex flex-col gap-1 p-2">
           {isLoading && <p className="text-xs p-2 animate-pulse" style={{ color: 'var(--on-surface-var)' }}>Loading...</p>}
           {data?.files?.map(f => {
-            const Icon = EXT_ICON[f.extension] || File
-            const color = EXT_COLOR[f.extension] || 'var(--on-surface-var)'
+            const Icon    = EXT_ICON[f.extension] || File
+            const color   = EXT_COLOR[f.extension] || 'var(--on-surface-var)'
             const isActive = selected?.name === f.name
+            const hasChat  = !!(chatsByFile[f.name]?.length > 1)
             return (
               <button key={f.name} onClick={() => setSelected(f)}
                 className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-left transition-all w-full"
@@ -503,12 +486,14 @@ export default function DocumentReview() {
                   border: `1px solid ${isActive ? 'var(--primary)' : 'transparent'}`,
                 }}>
                 <Icon size={14} strokeWidth={1.75} style={{ color, flexShrink: 0 }} />
-                <div className="min-w-0">
-                  <p className="text-xs font-medium truncate" style={{ color: isActive ? 'var(--primary)' : 'var(--on-surface)' }}>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium truncate"
+                    style={{ color: isActive ? 'var(--primary)' : 'var(--on-surface)' }}>
                     {f.name}
                   </p>
                   <p className="text-[10px]" style={{ color: 'var(--outline)' }}>
                     {(f.size_bytes / 1024).toFixed(1)} KB
+                    {hasChat && <span className="ml-1.5" style={{ color: 'var(--primary)' }}>· chat</span>}
                   </p>
                 </div>
               </button>
@@ -524,7 +509,6 @@ export default function DocumentReview() {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {selected ? (
           <>
-            {/* Toolbar */}
             <div className="flex items-center justify-between px-5 py-3 shrink-0"
               style={{ borderBottom: '1px solid var(--outline-var)', background: 'var(--surface-low)' }}>
               <div className="flex items-center gap-2">
@@ -541,7 +525,6 @@ export default function DocumentReview() {
                 Download
               </a>
             </div>
-            {/* Preview */}
             <div className="flex-1 overflow-hidden" style={{ background: 'var(--surface)' }}>
               <DocPreview filename={selected.name} />
             </div>
@@ -570,18 +553,19 @@ export default function DocumentReview() {
             Ask questions or say "change X to Y" to edit
           </p>
         </div>
-        {selected
-          ? <DocChat
-              filename={selected.name}
-              onEditApplied={() => {
-                // Force preview refetch by briefly clearing selection
-                const s = selected
-                setSelected(null)
-                setTimeout(() => setSelected(s), 50)
-              }}
-            />
-          : <p className="text-xs p-4" style={{ color: 'var(--on-surface-var)' }}>Select a document to start chatting.</p>
-        }
+        {selected ? (
+          <DocChat
+            key={selected.name}
+            filename={selected.name}
+            messages={currentMessages}
+            onMessages={(updater) => handleMessages(selected.name, updater)}
+            queryClient={queryClient}
+          />
+        ) : (
+          <p className="text-xs p-4" style={{ color: 'var(--on-surface-var)' }}>
+            Select a document to start chatting.
+          </p>
+        )}
       </div>
 
     </div>
