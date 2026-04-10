@@ -53,6 +53,9 @@ def _derive_title(prompt: str, spec: str) -> str:
     slug = re.sub(r'\s+', '-', slug.strip())
     slug = slug.strip('-')[:60]  # max 60 chars
     return slug or "document"
+
+
+def run_orchestrator(state: AgentState) -> AgentState:
     job_id = state.get("job_id", "")
     log.info("Orchestrator: Starting intake & planning phase.")
     post_message(job_id, "orchestrator", f"📋 Received prompt. Detecting output format and loading brand context...")
