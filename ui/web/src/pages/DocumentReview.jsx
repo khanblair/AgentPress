@@ -421,6 +421,46 @@ function DocChat({ filename, messages, onMessages, queryClient }) {
   )
 }
 
+// ── Drag-to-resize handle ──────────────────────────────────────────────────────
+
+const CHAT_MIN = 240
+const CHAT_MAX = 720
+const CHAT_DEFAULT = 320
+
+function useResizable(defaultWidth) {
+  const [width, setWidth] = useState(() => {
+    try { return parseInt(localStorage.getItem('chat_panel_width') || defaultWidth, 10) } catch { return defaultWidth }
+  })
+  const dragging = useRef(false)
+  const startX   = useRef(0)
+  const startW   = useRef(0)
+
+  const onMouseDown = useCallback((e) => {
+    e.preventDefault()
+    dragging.current = true
+    startX.current   = e.clientX
+    startW.current   = width
+
+    const onMove = (ev) => {
+      if (!dragging.current) return
+      // Handle is on the LEFT edge of the chat panel — dragging left = wider
+      const delta = startX.current - ev.clientX
+      const next  = Math.min(CHAT_MAX, Math.max(CHAT_MIN, startW.current + delta))
+      setWidth(next)
+    }
+    const onUp = () => {
+      dragging.current = false
+      setWidth(w => { try { localStorage.setItem('chat_panel_width', w) } catch {} return w })
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [width])
+
+  return { width, onMouseDown }
+}
+
 // ── Main page ──────────────────────────────────────────────────────────────────
 
 export default function DocumentReview() {
@@ -431,23 +471,18 @@ export default function DocumentReview() {
     refetchInterval: 8000,
   })
 
-  const [selected, setSelected] = useState(null)
-
-  // Chat state lives here — keyed by filename — survives file switching and navigation
+  const [selected, setSelected]     = useState(null)
   const [chatsByFile, setChatsByFile] = useState({})
+  const { width: chatWidth, onMouseDown: onHandleMouseDown } = useResizable(CHAT_DEFAULT)
 
-  // Auto-select most recent file on first load
   useEffect(() => {
-    if (data?.files?.length && !selected) {
-      setSelected(data.files[0])
-    }
+    if (data?.files?.length && !selected) setSelected(data.files[0])
   }, [data])
 
-  // When a file is selected, ensure its chat history is loaded from localStorage
   useEffect(() => {
     if (!selected) return
     setChatsByFile(prev => {
-      if (prev[selected.name]) return prev   // already loaded
+      if (prev[selected.name]) return prev
       return { ...prev, [selected.name]: loadChatState(selected.name) }
     })
   }, [selected?.name])
@@ -474,8 +509,8 @@ export default function DocumentReview() {
         <div className="flex flex-col gap-1 p-2">
           {isLoading && <p className="text-xs p-2 animate-pulse" style={{ color: 'var(--on-surface-var)' }}>Loading...</p>}
           {data?.files?.map(f => {
-            const Icon    = EXT_ICON[f.extension] || File
-            const color   = EXT_COLOR[f.extension] || 'var(--on-surface-var)'
+            const Icon     = EXT_ICON[f.extension] || File
+            const color    = EXT_COLOR[f.extension] || 'var(--on-surface-var)'
             const isActive = selected?.name === f.name
             const hasChat  = !!(chatsByFile[f.name]?.length > 1)
             return (
@@ -505,7 +540,7 @@ export default function DocumentReview() {
         </div>
       </div>
 
-      {/* Center panel — document preview */}
+      {/* Center panel — document preview (takes remaining space) */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {selected ? (
           <>
@@ -538,9 +573,32 @@ export default function DocumentReview() {
         )}
       </div>
 
-      {/* Right panel — chat */}
-      <div className="flex flex-col w-80 shrink-0 overflow-hidden"
-        style={{ borderLeft: '1px solid var(--outline-var)', background: 'var(--surface-low)' }}>
+      {/* Drag handle */}
+      <div
+        onMouseDown={onHandleMouseDown}
+        className="shrink-0 flex items-center justify-center group"
+        style={{
+          width: '6px',
+          cursor: 'col-resize',
+          background: 'var(--outline-var)',
+          transition: 'background 0.15s',
+          zIndex: 10,
+        }}
+        onMouseEnter={e => e.currentTarget.style.background = 'var(--primary)'}
+        onMouseLeave={e => e.currentTarget.style.background = 'var(--outline-var)'}
+        title="Drag to resize chat panel"
+      >
+        {/* Grip dots */}
+        <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          {[0,1,2].map(i => (
+            <div key={i} className="w-1 h-1 rounded-full" style={{ background: 'var(--primary)' }} />
+          ))}
+        </div>
+      </div>
+
+      {/* Right panel — chat (resizable width) */}
+      <div className="flex flex-col shrink-0 overflow-hidden"
+        style={{ width: chatWidth, borderLeft: 'none', background: 'var(--surface-low)' }}>
         <div className="px-4 py-3 shrink-0" style={{ borderBottom: '1px solid var(--outline-var)' }}>
           <div className="flex items-center gap-2">
             <p className="text-sm font-semibold" style={{ color: 'var(--on-surface)' }}>Document Chat</p>
