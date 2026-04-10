@@ -310,6 +310,15 @@ agentpress/
 
 Every pipeline run and evolution is logged. The `docs/` folder is published to GitHub Pages via `.github/workflows/pages.yml` using MkDocs Material.
 
+**Live dashboard:** [https://khanblair.github.io/AgentPress/](https://khanblair.github.io/AgentPress/)
+
+Includes:
+- **Dashboard** — pipeline overview, agent status, tech stack
+- **Architecture** — system diagram, state flow, SSE streaming
+- **Agents** — full reference for all 6 agents
+- **Evolution Log** — every skill the Meta-Engineer has written
+- **Document Ledger** — log of all generated documents
+
 To build the docs locally:
 
 ```bash
