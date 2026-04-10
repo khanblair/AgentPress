@@ -72,6 +72,7 @@ function DocPreview({ filename }) {
     queryFn: () => previewDocument(filename),
     enabled: !!filename,
     staleTime: 0,
+    gcTime: 0,
   })
 
   if (isLoading) return (
@@ -327,13 +328,16 @@ function DocChat({ filename, messages, onMessages, queryClient }) {
 
   const applyEdit = useCallback(async (msgIdx) => {
     const msg = messages[msgIdx]
-    const instruction = msg.instruction || messages[msgIdx - 1]?.content || msg.content
+    // Always use the user's original instruction (the message before this assistant reply)
+    const prevUserMsg = [...messages].slice(0, msgIdx).reverse().find(m => m.role === 'user')
+    const instruction = prevUserMsg?.content || msg.instruction || msg.content
     setApplyingIdx(msgIdx)
     setApplyStatus(s => ({ ...s, [msgIdx]: 'applying' }))
     try {
       await editDocument(filename, instruction)
       setApplyStatus(s => ({ ...s, [msgIdx]: 'done' }))
-      // Invalidate preview — no remount needed
+      // Remove cached preview entirely so the refetch is guaranteed fresh
+      queryClient.removeQueries({ queryKey: ['preview', filename] })
       queryClient.invalidateQueries({ queryKey: ['preview', filename] })
       onMessages(prev => {
         const next = [...prev, {
