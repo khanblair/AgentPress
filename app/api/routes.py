@@ -350,7 +350,6 @@ async def send_chat_message(request: UserChatRequest, background_tasks: Backgrou
     post_global("user", request.message, "info")
 
     # Detect @mentions
-    import re
     mentions = re.findall(r'@(\w+)', request.message.lower())
     valid_agents = [m for m in mentions if m in AGENT_META and m != "user"]
 
@@ -427,7 +426,6 @@ async def preview_output(filename: str):
 
         elif ext == ".pptx":
             from pptx import Presentation
-            import re
             prs = Presentation(str(file_path))
             content = []
             for i, slide in enumerate(prs.slides, 1):
@@ -441,14 +439,10 @@ async def preview_output(filename: str):
                         text = para.text.strip()
                         if not text:
                             continue
-                        # Clean all markdown artifacts aggressively
-                        text = re.sub(r'\*{1,3}', '', text)   # remove all * ** ***
-                        text = re.sub(r'^[•\-\*]\s*', '', text)  # strip leading bullets
+                        text = re.sub(r'\*{1,3}', '', text)
+                        text = re.sub(r'^[•\-\*]\s*', '', text)
                         text = text.strip()
-                        paragraphs.append({
-                            "text": text,
-                            "level": para.level,
-                        })
+                        paragraphs.append({"text": text, "level": para.level})
                     if paragraphs:
                         shapes_data.append({"paragraphs": paragraphs})
                 content.append({"type": "slide", "index": i, "shapes": shapes_data})
@@ -595,16 +589,16 @@ You can answer questions, suggest edits, rewrite sections, or summarize content.
 # ── Pipeline runner ────────────────────────────────────────────────────────────
 
 async def run_pipeline(job_id: str, session_id: str, prompt: str):
+    """Run the LangGraph pipeline in a thread so the event loop stays free for SSE."""
+    import concurrent.futures
     log.info(f"Starting pipeline for job {job_id}")
     jobs[job_id]["status"] = "processing"
 
-    # Initialise per-agent tracking
     agent_order = ["orchestrator", "researcher", "synthesizer", "designer", "inspector", "meta_engineer"]
     jobs[job_id]["agents"] = {
         name: {"status": "pending", "started_at": None, "finished_at": None, "error": None}
         for name in agent_order
     }
-    # Mark first agent as running immediately
     jobs[job_id]["agents"]["orchestrator"]["status"] = "running"
     jobs[job_id]["agents"]["orchestrator"]["started_at"] = datetime.now(timezone.utc).isoformat()
 
@@ -614,14 +608,13 @@ async def run_pipeline(job_id: str, session_id: str, prompt: str):
         "job_id": job_id,
     }
 
-    try:
+    def _run_sync():
+        """Blocking graph execution — runs in thread pool."""
         for event in compiled_graph.stream(inputs):
             for node, state in event.items():
                 now = datetime.now(timezone.utc).isoformat()
                 log.info(f"Node '{node}' finished.")
 
-                # Mark previous node as running when we first see it,
-                # then mark it done when the event arrives
                 if node in jobs[job_id]["agents"]:
                     agent = jobs[job_id]["agents"][node]
                     if agent["started_at"] is None:
@@ -629,7 +622,6 @@ async def run_pipeline(job_id: str, session_id: str, prompt: str):
                     agent["status"] = "done"
                     agent["finished_at"] = now
 
-                # Mark next agent as running
                 if node in agent_order:
                     idx = agent_order.index(node)
                     if idx + 1 < len(agent_order):
@@ -645,6 +637,9 @@ async def run_pipeline(job_id: str, session_id: str, prompt: str):
                 if state.get("qa_report"):
                     jobs[job_id]["qa_report"] = state["qa_report"]
 
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _run_sync)
         jobs[job_id]["status"] = "completed"
         log.info(f"Pipeline finished for job {job_id}")
     except Exception as e:
@@ -652,7 +647,6 @@ async def run_pipeline(job_id: str, session_id: str, prompt: str):
         log.error(f"Pipeline error for job {job_id}: {e}")
         jobs[job_id]["status"] = "failed"
         jobs[job_id]["error"] = str(e)
-        # Mark the currently running agent as failed
         for name, agent in jobs[job_id]["agents"].items():
             if agent["status"] == "running":
                 agent["status"] = "failed"
